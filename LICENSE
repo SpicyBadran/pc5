@@ -1,0 +1,14 @@
+                    GNU GENERAL PUBLIC LICENSE
+                       Version 2, June 1991
+
+ Copyright (C) 1989, 1991 Free Software Foundation, Inc.,
+ 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA
+ Everyone is permitted to copy and distribute verbatim copies
+ of this license document, but changing it is not allowed.
+
+See <https://www.gnu.org/licenses/old-licenses/gpl-2.0.html> for the full text.
+
+PC5 is distributed under GPL version 2 only (not "or any later version").
+The PC5 boot environment is original work; the AnyPS5 sources under
+vendor/anyps5 (if present) remain Copyright (C) their authors and are
+GPL-2.0-only as well.
