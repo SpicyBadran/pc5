@@ -57,6 +57,18 @@ def both32(value: int) -> bytes:
     return struct.pack("<I", value) + struct.pack(">I", value)
 
 
+def build_time() -> datetime.datetime:
+    """Timestamp used inside the image.
+
+    Honours SOURCE_DATE_EPOCH so that two builds of the same commit produce
+    byte-identical media; otherwise the current UTC time is used.
+    """
+    epoch = os.environ.get("SOURCE_DATE_EPOCH")
+    if epoch:
+        return datetime.datetime.fromtimestamp(int(epoch), datetime.timezone.utc)
+    return datetime.datetime.now(datetime.timezone.utc)
+
+
 def pad(text: str | bytes, length: int, fill: bytes = b" ") -> bytes:
     if isinstance(text, str):
         raw = text.encode("ascii", "replace")
@@ -67,7 +79,7 @@ def pad(text: str | bytes, length: int, fill: bytes = b" ") -> bytes:
 
 def dir_record(name: bytes, extent: int, size: int, is_dir: bool) -> bytes:
     """Build one ISO9660 directory record."""
-    now = datetime.datetime.now(datetime.timezone.utc)
+    now = build_time()
     date7 = bytes(
         [
             max(0, now.year - 1900),
@@ -272,8 +284,7 @@ class IsoBuilder:
             catalog[e + 8: e + 12] = struct.pack("<I", uefi_lba)
 
         # -- primary volume descriptor ---------------------------------
-        now = datetime.datetime.now(datetime.timezone.utc)
-        stamp = now.strftime("%Y%m%d%H%M%S").encode("ascii")
+        stamp = build_time().strftime("%Y%m%d%H%M%S").encode("ascii")
         pvd = bytearray(SECTOR)
         pvd[0] = 1
         pvd[1:6] = b"CD001"

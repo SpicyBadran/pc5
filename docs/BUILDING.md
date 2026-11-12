@@ -27,27 +27,32 @@ make clean
 
 ## Reproducibility
 
-The build is deterministic except for the timestamp, which is taken from
-`SOURCE_DATE_EPOCH` when set:
+Two inputs are embedded in the kernel and therefore in the image hash:
+
+| Input | Default | Override |
+|---|---|---|
+| build id, printed as `PC5_BUILD_ID` and shown on screen | `git rev-parse --short HEAD` | `make BUILD_ID=…` |
+| build timestamp, printed as `PC5_BUILD_DATE` | current UTC time | `SOURCE_DATE_EPOCH=…` or `make BUILD_DATE=…` |
+
+Byte-identical output therefore needs **the same commit and the same timestamp**:
 
 ```sh
-SOURCE_DATE_EPOCH=1700000000 make clean iso
-sha256sum build/pc5.iso
+export SOURCE_DATE_EPOCH=1700000000
+make clean iso && sha256sum build/pc5.iso
+make clean iso && sha256sum build/pc5.iso   # same digest both times
 ```
 
-The ISO writer allocates every extent by a fixed rule, so nothing depends on
-file system order. `build/build-info.json` records the volume layout, the
-per-file SHA-256 values and the image SHA-256 that `make verify` re-checks.
+Everything else is deterministic: `tools/mkiso.py` allocates every extent by a
+fixed rule and stamps the volume and directory records from `SOURCE_DATE_EPOCH`
+(not from the wall clock), so nothing depends on file-system order or on when
+you build. This is covered by
+`tests/test_tools.py::test_source_date_epoch_makes_builds_byte_identical`. `build/build-info.json` records the volume
+layout, the per-file SHA-256 values and the image SHA-256 that `make verify`
+re-checks.
 
-To confirm byte-identical output:
-
-```sh
-SOURCE_DATE_EPOCH=1700000000 make clean iso && sha256sum build/pc5.iso
-SOURCE_DATE_EPOCH=1700000000 make clean iso && sha256sum build/pc5.iso
-```
-
-(Two builds with the same epoch produce the same digest; the boot descriptor
-contains no timestamp.)
+Take the digest from your own build rather than from a document: this
+repository quotes hashes with the commit they came from, and a hash built from a
+different commit is a different, equally valid image.
 
 ## Layout
 

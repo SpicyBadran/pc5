@@ -64,7 +64,7 @@ Why each non-OK stage has that state:
 | PS/2 keyboard navigation | IMPLEMENTED — TESTING REQUIRED | 8042 driver; emulator input only |
 | Serial console with 11 commands | COMPLETE AND VERIFIED | boot test drives it |
 | Compatibility chain + evidence reporting | COMPLETE AND VERIFIED | unit tests + boot test |
-| ISO writer + independent verifier | COMPLETE AND VERIFIED | 12 host unit tests |
+| ISO writer + independent verifier (reproducible under SOURCE_DATE_EPOCH) | COMPLETE AND VERIFIED | 13 host unit tests |
 | Firmware analysis tool (no decryption) | COMPLETE AND VERIFIED | unit tests on synthetic containers |
 | Kernel ATAPI PIO driver + ISO9660 reader | COMPLETE AND VERIFIED (emulated) | `storage_mounted volume=PC5 … signature=ok` |
 | UEFI boot path | NOT STARTED | — |

@@ -37,6 +37,23 @@ class MkIsoTests(unittest.TestCase):
         self.assertEqual(info_a["sha256"], info_b["sha256"])
         self.assertEqual(len(a) % 2048, 0)
 
+    def test_source_date_epoch_makes_builds_byte_identical(self):
+        """The image must not embed the wall clock when SOURCE_DATE_EPOCH is set."""
+        old = os.environ.get("SOURCE_DATE_EPOCH")
+        os.environ["SOURCE_DATE_EPOCH"] = "1700000000"
+        try:
+            a, _ = self.build()
+            import time
+
+            time.sleep(1.1)  # a different wall-clock second
+            b, _ = self.build()
+        finally:
+            if old is None:
+                os.environ.pop("SOURCE_DATE_EPOCH", None)
+            else:
+                os.environ["SOURCE_DATE_EPOCH"] = old
+        self.assertEqual(a, b)
+
     def test_volume_descriptors(self):
         image, info = self.build()
         pvd = image[16 * 2048:17 * 2048]
