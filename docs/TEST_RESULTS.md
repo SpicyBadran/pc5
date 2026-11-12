@@ -16,10 +16,14 @@ pc5: sha256 f44d3c62a0aa3b4614934a3d1aea6a2b262e6d25dfcffb8ed6dd00d387c12df6
 |---|---|
 | path | `build/pc5.iso` |
 | size | 96,256 bytes (47 × 2048) |
-| SHA-256 | `26d8fc8101b60c5a16d7ce618e4e008dc9b405f7c332f6701c6cf4e6ef6ce12d` |
+| SHA-256 | `26d8fc8101b60c5a16d7ce618e4e008dc9b405f7c332f6701c6cf4e6ef6ce12d` (build id `7a43086`) |
 | loader image | 4,096 bytes (8 El Torito virtual sectors) |
 | kernel image | 36,508 bytes, `PC5K` signature, loaded at `0x10000` |
 | volume id | `PC5` |
+
+The digest embeds the commit id and the build timestamp (`docs/BUILDING.md`), so
+a rebuild from a later commit produces a different but equally valid image; the
+structural checks below hold for any build.
 
 ## 2. Structural verification — `make verify`
 
@@ -54,7 +58,7 @@ $ make unit
 PASSED: 35 checks, 0 failures
 
 $ python3 -m unittest discover -s tests -p 'test_*.py'
-Ran 12 tests in 0.150s
+Ran 13 tests in 1.327s
 OK
 ```
 
@@ -65,6 +69,7 @@ the tests have teeth):
 |---|---|---|
 | ATAPI IDENTIFY result discarded because a packet device answers with ERR set | serial log showed `storage drives=0` although the CD was present | wait for BSY only; treat ERR+signature as "ATAPI present" |
 | ATA data register accessed as two byte reads/writes (`inb(0x1f0)`, `inb(0x1f1)`) | `storage_mounted=no error=-2`: the PVD read back as garbage | added `inw`/`outw`; the data port is a 16-bit register |
+| ISO volume and directory timestamps came from the wall clock, so two builds of the same commit differed | reproducibility check (`SOURCE_DATE_EPOCH` twice → different digests) | `tools/mkiso.py` stamps from `SOURCE_DATE_EPOCH`; unit test added |
 | Loader advanced the sector address by bytes instead of disk units, so any multi-chunk kernel load read from a wild LBA | the first kernel image larger than 32 KiB hung the boot | `read_lba` advances in disk units, `read_dest` in bytes |
 | `%x` printed 8 zero-padded digits without a width | kernel unit test `pci id` | minimal digits unless a width is given |
 | `%llu` emitted a stray `u` | kernel unit test `u64` | consume the second `l` |
