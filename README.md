@@ -23,7 +23,7 @@ What *does* work today, verified in this repository:
 |---|---|---|
 | Reproducible ISO build (`build/pc5.iso`) | COMPLETE AND VERIFIED | `make iso`, [`docs/TEST_RESULTS.md`](docs/TEST_RESULTS.md) |
 | ISO structure (ISO9660 + El Torito + boot descriptor) | COMPLETE AND VERIFIED | `make verify` → 32/32 checks |
-| Boots on an emulated x86 PC (SeaBIOS, CD-ROM) | COMPLETE AND VERIFIED | `make boot-test` → 24/24 checks |
+| Boots on an emulated x86 PC (SeaBIOS, CD-ROM) | COMPLETE AND VERIFIED | `make boot-test` → 25/25 checks |
 | Kernel reads its own medium (ATAPI + ISO9660, no firmware calls) | COMPLETE AND VERIFIED (emulated) | `storage_mounted volume=PC5` in the boot log |
 | Hardware inventory (CPUID, E820, PCI, ACPI, SMBIOS) | IMPLEMENTED — TESTING REQUIRED | hardware page + serial log |
 | Framebuffer console with VGA text fallback | COMPLETE AND VERIFIED (emulated) | boot log, framebuffer self-test |

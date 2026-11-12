@@ -13,7 +13,7 @@ supplied), licences checked. Evidence: `docs/PROJECT_AUDIT.md`.
 
 * `make iso` → `build/pc5.iso` (96,256 bytes, reproducible).
 * `make verify` → 32/32 structural checks.
-* `make boot-test` → 24/24 checks on the v86/SeaBIOS emulated PC, including the
+* `make boot-test` → 25/25 checks on the v86/SeaBIOS emulated PC, including the
   kernel mounting its own volume through its ATAPI/ISO9660 driver.
 
 Not done here: UEFI boot, isohybrid USB, physical hardware (M2).

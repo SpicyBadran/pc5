@@ -101,7 +101,7 @@ the tests have teeth):
 [PASS] diagnostics page reports the kernel storage self-test
 [PASS] storage stage evidence names the mounted volume
 [PASS] power page renders
-PASSED (24 checks)
+PASSED (25 checks)
 ```
 
 Serial excerpt from the emulated machine (SeaBIOS, 128 MiB, emulated CD-ROM):
