@@ -9,8 +9,10 @@
 # Reproducibility: set SOURCE_DATE_EPOCH to pin the build timestamp; the
 # toolchain needs only binutils, gcc (with 32-bit support), python3 and make.
 
-VERSION      ?= 0.1.0
+VERSION      ?= 0.2.0
 BUILD_ID     ?= $(shell git rev-parse --short HEAD 2>/dev/null || echo local)
+COMMIT       ?= $(shell git rev-parse HEAD 2>/dev/null || echo unknown)
+TAG          ?=
 STAMP_EPOCH  ?= $(shell if [ -n "$$SOURCE_DATE_EPOCH" ]; then echo $$SOURCE_DATE_EPOCH; else date -u +%s; fi)
 BUILD_DATE   ?= $(shell date -u -d @$(STAMP_EPOCH) +%Y-%m-%dT%H:%M:%SZ 2>/dev/null || date -u +%Y-%m-%dT%H:%M:%SZ)
 
@@ -42,7 +44,7 @@ KERNEL_CFLAGS := -m32 -std=gnu11 -O2 -Wall -Wextra -Wno-unused-parameter \
                  -DPC5_BUILD_ID='"$(BUILD_ID)"' \
                  -DPC5_BUILD_DATE='"$(BUILD_DATE)"'
 
-.PHONY: all iso check test boot-test verify clean distclean info unit
+.PHONY: all iso check test boot-test verify clean distclean info unit metadata release-assets
 
 all: iso
 
@@ -118,12 +120,36 @@ check: unit
 	python3 -m unittest discover -s tests -p 'test_*.py' -v
 
 verify: $(ISO)
-	python3 tools/verify_iso.py $(ISO) --info $(BUILD)/build-info.json
+	python3 tools/verify_iso.py $(ISO) --info $(BUILD)/build-info.json \
+	  --json-out $(BUILD)/verify-report.json
 
 boot-test: $(ISO)
 	python3 tests/boot_test.py --iso $(ISO)
 
 test: check boot-test
+
+# Provenance for a release: version, commit, toolchain and whatever the test
+# logs in $(BUILD) can prove.  Reports that do not exist are simply not cited.
+metadata: $(ISO)
+	@mkdir -p $(BUILD)
+	python3 tools/buildmeta.py --iso $(ISO) --info $(BUILD)/build-info.json \
+	  --version "$(VERSION)" --tag "$(TAG)" --commit "$(COMMIT)" \
+	  --build-id "$(BUILD_ID)" --source-date-epoch "$(STAMP_EPOCH)" \
+	  --build-date "$(BUILD_DATE)" \
+	  $$([ -f $(BUILD)/verify-report.json ] && echo --verify-report $(BUILD)/verify-report.json) \
+	  $$([ -f $(BUILD)/test/boot-evidence.json ] && echo --boot-evidence $(BUILD)/test/boot-evidence.json) \
+	  $$([ -f $(BUILD)/logs/unit.log ] && echo --unit-log $(BUILD)/logs/unit.log) \
+	  $$([ -f $(BUILD)/logs/host.log ] && echo --host-log $(BUILD)/logs/host.log)
+
+# Stage exactly the three release assets in one directory.
+release-assets: metadata
+	@mkdir -p $(BUILD)/release
+	cp $(ISO) $(BUILD)/release/pc5.iso
+	cp $(BUILD)/pc5.iso.sha256 $(BUILD)/release/pc5.iso.sha256
+	cp $(BUILD)/build-info.json $(BUILD)/release/build-info.json
+	@ls -l $(BUILD)/release
+	@echo "pc5: release assets staged in $(BUILD)/release"
+	@sha256sum $(BUILD)/release/*
 
 clean:
 	rm -rf $(BUILD)

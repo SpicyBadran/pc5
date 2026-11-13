@@ -815,7 +815,7 @@ s_sp:           .asciz " "
 max_chunk:      .long 16
 this_chunk:     .long 0
 
-s_banner:       .asciz "\r\nPC5 loader 0.1.0\r\n"
+s_banner:       .asciz "\r\nPC5 loader 0.2.0\r\n"
 s_vbe_ok:       .asciz "pc5: framebuffer "
 s_vbe_fail:     .asciz "pc5: VBE unavailable, using text mode\r\n"
 s_vbe_modes:    .asciz "pc5: vbe modes_seen/lfb/best "
@@ -830,7 +830,7 @@ s_e_a20:        .asciz "pc5: fatal: A20 gate did not open\r\n"
 s_e_kernel:     .asciz "pc5: fatal: kernel load failed\r\n"
 s_nl:           .asciz "\r\n"
 
-loader_version: .ascii "0.1.0"
+loader_version: .ascii "0.2.0"
                 .space 11, 0
 
 /*

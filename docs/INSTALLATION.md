@@ -4,11 +4,15 @@
 
 ```sh
 gh release download --repo SpicyBadran/pc5       # or build it: see docs/BUILDING.md
+ls                     # pc5.iso  pc5.iso.sha256  build-info.json
 sha256sum -c pc5.iso.sha256
 ```
 
-`build/build-info.json` records the layout and per-file hashes; `pc5ctl verify`
-re-checks them independently.
+Release assets are produced by the CI pipeline from the tagged commit, never
+uploaded by hand. `build-info.json` records the layout, per-file hashes and the
+build provenance (commit, toolchain, and the result of each test that ran);
+`python3 tools/verify_iso.py pc5.iso --info build-info.json` re-checks the image
+independently.
 
 ## 2. Write it to a USB stick
 
@@ -45,13 +49,13 @@ start yet; see `docs/KNOWN_LIMITATIONS.md`. Writing the ISO to a stick is safe
 Expected boot log on COM1 (115200 8N1):
 
 ```
-PC5 loader 0.1.0
+PC5 loader 0.2.0
 pc5: framebuffer 1024x0768
 pc5: medium is ISO9660, disk unit bytes 0800
 pc5: kernel image verified
 pc5: medium volume PC5
 pc5: entering 32-bit kernel
-PC5 KERNEL 0.1.0 …
+PC5 KERNEL 0.2.0 …
 PC5-LOG …
 PC5-BOOT-OK
 ```

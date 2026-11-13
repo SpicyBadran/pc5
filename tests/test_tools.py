@@ -196,6 +196,140 @@ class BuiltImageTests(unittest.TestCase):
             build_info = json.load(fh)
         self.assertEqual(build_info["sha256"], rep.data["sha256"])
 
+class BuildMetaTests(unittest.TestCase):
+    """tools/buildmeta.py adds provenance without touching the image."""
+
+    def setUp(self):
+        self.tmp = tempfile.mkdtemp(prefix="pc5-meta-")
+        self.iso = os.path.join(self.tmp, "pc5.iso")
+        with open(self.iso, "wb") as fh:
+            fh.write(b"\xeb\x05PC5K" + bytes(2048))
+        import hashlib
+
+        self.sha = hashlib.sha256(open(self.iso, "rb").read()).hexdigest()
+        self.info = os.path.join(self.tmp, "build-info.json")
+        with open(self.info, "w", encoding="utf-8") as fh:
+            json.dump(
+                {
+                    "volume_id": "PC5",
+                    "iso_bytes": 2053,
+                    "iso_sectors": 2,
+                    "sha256": self.sha,
+                    "layout": {},
+                    "kernel": {"lba": 1, "bytes": 2053},
+                    "files": [],
+                },
+                fh,
+            )
+
+    def report(self, failures=0):
+        path = os.path.join(self.tmp, "verify.json")
+        checks = [{"name": "ok", "ok": True} for _ in range(3)]
+        checks += [{"name": f"bad{i}", "ok": False} for i in range(failures)]
+        with open(path, "w", encoding="utf-8") as fh:
+            json.dump({"ok": not failures, "checks": checks}, fh)
+        return path
+
+    def run_meta(self, *extra):
+        cmd = [
+            sys.executable,
+            os.path.join(ROOT, "tools", "buildmeta.py"),
+            "--info", self.info,
+            "--iso", self.iso,
+            "--version", "9.9.9",
+            "--commit", "0" * 40,
+            "--build-id", "deadbeef",
+            "--source-date-epoch", "1700000000",
+            *extra,
+        ]
+        return subprocess.run(cmd, capture_output=True, text=True)
+
+    def test_adds_metadata_and_rechecks_hash(self):
+        run = self.run_meta("--verify-report", self.report())
+        self.assertEqual(run.returncode, 0, run.stdout + run.stderr)
+        with open(self.info, encoding="utf-8") as fh:
+            info = json.load(fh)
+        build = info["build"]
+        self.assertEqual(build["schema"], "pc5.build-metadata/1")
+        self.assertEqual(build["version"], "9.9.9")
+        self.assertEqual(build["source_date_epoch"], 1700000000)
+        self.assertEqual(build["artifact"]["sha256_rechecked"], self.sha)
+        self.assertEqual(build["verification"]["verdict"], "PASS")
+        # the structural record mkiso wrote is preserved for the verifier
+        self.assertEqual(info["sha256"], self.sha)
+        self.assertIn("files", info)
+
+    def test_refuses_a_failing_verification(self):
+        run = self.run_meta("--verify-report", self.report(failures=2))
+        self.assertEqual(run.returncode, 3, run.stdout + run.stderr)
+        self.assertIn("FAILED iso_structure", run.stderr)
+
+    def test_refuses_an_image_that_does_not_match_the_record(self):
+        with open(self.iso, "ab") as fh:
+            fh.write(b"tampered")
+        run = self.run_meta()
+        self.assertEqual(run.returncode, 3, run.stdout + run.stderr)
+        self.assertIn("does not match the build record", run.stderr)
+
+
+class WorkflowTests(unittest.TestCase):
+    """Static checks on the CI pipeline; no network, no PyYAML."""
+
+    PATH = os.path.join(ROOT, ".github", "workflows", "build.yml")
+    FALLBACK = os.path.join(ROOT, "ci", "build.yml")
+
+    def setUp(self):
+        path = self.PATH if os.path.exists(self.PATH) else self.FALLBACK
+        if not os.path.exists(path):
+            self.skipTest("no workflow")
+        with open(path, encoding="utf-8") as fh:
+            self.text = fh.read()
+
+    def test_actions_are_pinned_to_commit_shas(self):
+        import re
+
+        uses = re.findall(r"uses:\s*([^\s#]+)", self.text)
+        self.assertTrue(uses, "workflow uses no actions")
+        for ref in uses:
+            self.assertRegex(ref, r"@[0-9a-f]{40}$", f"action not pinned: {ref}")
+
+    def test_never_uses_pull_request_target(self):
+        self.assertNotIn("pull_request_target", self.text)
+
+    def test_only_the_release_job_can_write(self):
+        # count only real permission lines, not the explanatory comments
+        grants = [
+            line
+            for line in self.text.splitlines()
+            if line.strip().startswith("contents:") and not line.strip().startswith("#")
+        ]
+        self.assertEqual(len(grants), 2, grants)  # top-level read, release write
+        self.assertIn("contents: read", grants[0])
+        self.assertIn("contents: write", grants[1])
+        self.assertGreater(self.text.index(grants[1]), self.text.index("release:"))
+
+    def test_release_is_restricted_to_tags(self):
+        self.assertIn("startsWith(github.ref, 'refs/tags/')", self.text)
+
+    def test_publishes_the_three_assets_idempotently(self):
+        for asset in ("pc5.iso", "pc5.iso.sha256", "build-info.json"):
+            self.assertIn(asset, self.text)
+        # the publishing logic lives in tools/publish_release.sh so it can be
+        # tested without network access
+        self.assertIn("tools/publish_release.sh", self.text)
+        script = open(os.path.join(ROOT, "tools", "publish_release.sh"), encoding="utf-8").read()
+        self.assertIn("--clobber", script)
+        self.assertIn("gh release view", script)  # update instead of duplicate
+
+    def test_checksums_are_verified_before_publishing(self):
+        self.assertIn("sha256sum -c pc5.iso.sha256", self.text)
+
+    def test_no_secrets_are_referenced(self):
+        self.assertNotIn("secrets.", self.text)
+
+    def test_reproducibility_is_enforced(self):
+        self.assertIn("the two builds differ", self.text)
+
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)

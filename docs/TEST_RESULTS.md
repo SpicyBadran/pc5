@@ -1,54 +1,64 @@
 # Test results
 
-Build under test: PC5 `0.1.0`, build id `9576ad7`, branch `arena/2290edbd-pc5`.
-Host: Debian 12 x86-64, gcc 12.2.0, binutils 2.40, node 22, v86 (npm
-`v86-system` 0.5.0).
+Recorded on 2026-11-13. Build under test: PC5 `0.2.0`, source commit `5ab7c48`
+(branch `arena/20475d93-pc5`, based on `main` `09b885a`).
+Host: Debian 12 x86-64, gcc 12.2.0, binutils 2.40, make 4.3, python 3.11.2,
+node 22.22.3, v86 (npm `v86-system` 0.5.0) for the emulated boot test.
+
+Every number below was produced by the command quoted next to it, in this
+session, on this source tree.
 
 ## 1. Artifact
 
 ```
-$ make iso
-pc5: wrote build/pc5.iso (92160 bytes, 45 sectors)
-pc5: sha256 f44d3c62a0aa3b4614934a3d1aea6a2b262e6d25dfcffb8ed6dd00d387c12df6
+$ export BUILD_ID=$(git rev-parse HEAD)
+$ export SOURCE_DATE_EPOCH=$(git log -1 --format=%ct HEAD)
+$ make clean && make iso
+pc5: loader image 4096 bytes
+pc5: kernel image 36508 bytes (limit 585728)
+pc5: wrote build/pc5.iso (96256 bytes, 47 sectors)
+pc5: sha256 0644cf66faf77cba1034123ac22a6451de340c1ba2bffc0b484bcc6a05e7837f
 ```
 
 | Property | Value |
 |---|---|
 | path | `build/pc5.iso` |
 | size | 96,256 bytes (47 × 2048) |
-| SHA-256 | `26d8fc8101b60c5a16d7ce618e4e008dc9b405f7c332f6701c6cf4e6ef6ce12d` (build id `7a43086`) |
+| SHA-256 | `0644cf66faf77cba1034123ac22a6451de340c1ba2bffc0b484bcc6a05e7837f` |
+| inputs | `BUILD_ID=5ab7c48…`, `SOURCE_DATE_EPOCH=1794561088` (commit time) |
 | loader image | 4,096 bytes (8 El Torito virtual sectors) |
 | kernel image | 36,508 bytes, `PC5K` signature, loaded at `0x10000` |
 | volume id | `PC5` |
+| side files | `build/pc5.iso.sha256`, `build/build-info.json`, `build/verify-report.json` |
 
-The digest embeds the commit id and the build timestamp (`docs/BUILDING.md`), so
-a rebuild from a later commit produces a different but equally valid image; the
-structural checks below hold for any build.
+The digest embeds the commit id and the build timestamp, so a rebuild from a
+different commit is a different — equally valid — image. Pin both inputs
+(`docs/BUILDING.md`) to reproduce this exact file.
 
 ## 2. Structural verification — `make verify`
 
-32 checks, all pass. Selected lines:
+```
+$ make verify
+VALID: build/pc5.iso  sha256=0644cf66faf77cba1034123ac22a6451de340c1ba2bffc0b484bcc6a05e7837f
+```
+
+32 checks, 0 failures, written to `build/verify-report.json` as well. Selected
+lines:
 
 ```
-[PASS] image is a whole number of 2048-byte blocks  (92160 bytes)
+[PASS] image is a whole number of 2048-byte blocks  (96256 bytes)
 [PASS] volume descriptor signature at LBA 16  (CD001)
 [PASS] logical block size is 2048  (2048)
 [PASS] volume size matches the file  (47 blocks)
-[PASS] volume contains a kernel file  (BUILDINF.TXT;1,KERNEL.BIN;1,README.TXT;1)
 [PASS] El Torito system identifier  (EL TORITO SPECIFICATION)
 [PASS] catalog validation checksum sums to zero  (0x0)
 [PASS] default entry is bootable  (0x88)
 [PASS] default entry is no-emulation  (0)
 [PASS] boot image load segment is 0x7C0  (0x7c0)
 [PASS] boot image advertises at least one sector  (8)
-[PASS] PC5 boot descriptor found in the boot image
-[PASS] boot descriptor CRC32 is valid  (stored 0b9d0682 computed 0b9d0682)
-[PASS] descriptor kernel LBA matches the directory record  (27 vs 27)
+[PASS] boot descriptor CRC32 is valid
 [PASS] descriptor kernel size matches the directory record  (36508 vs 36508)
-[PASS] kernel image carries the PC5K signature  (eb055043354b01fa)
 [PASS] image SHA-256 matches build info
-[PASS] file KERNEL.BIN;1 content matches build info
-VALID: build/pc5.iso
 ```
 
 ## 3. Unit tests — `make check`
@@ -58,79 +68,57 @@ $ make unit
 PASSED: 35 checks, 0 failures
 
 $ python3 -m unittest discover -s tests -p 'test_*.py'
-Ran 13 tests in 1.327s
+Ran 32 tests in 1.721s
 OK
 ```
 
-Bugs these tests actually caught during development (kept here as evidence that
-the tests have teeth):
+The host suite grew from 13 to 32 tests in this milestone:
+
+| Class | Tests | What it covers |
+|---|---|---|
+| `MkIsoTests` | 10 | extent layout, volume descriptors, catalog checksum, descriptor patching, `SOURCE_DATE_EPOCH` determinism |
+| `FirmwareToolTests` | 4 | container identification, honest "unidentified", manifest → C |
+| `KernelUnitTests` | 1 | builds and runs the kernel unit binary |
+| `BuiltImageTests` | 1 | the real `build/pc5.iso` verifies and matches its record |
+| `BuildMetaTests` | 3 | provenance written, hash re-checked, refusal on mismatch or failing report |
+| `WorkflowTests` | 7 | actions pinned to SHAs, no `pull_request_target`, one write job, tag-only publishing, delegated publish script, no secrets, reproducibility gate |
+| `ReleaseNotesTests` | 2 | release notes state measured numbers, never invent one |
+| `PublishScriptTests` | 4 | publish script against a stub `gh`: three assets, idempotent re-run, verdict gate, checksum gate |
+| `CiLayoutTests` | 2 | the pipeline file exists and the activation note explains where it lives |
+
+Bugs these tests caught during development:
 
 | Bug | Caught by | Fix |
 |---|---|---|
-| ATAPI IDENTIFY result discarded because a packet device answers with ERR set | serial log showed `storage drives=0` although the CD was present | wait for BSY only; treat ERR+signature as "ATAPI present" |
-| ATA data register accessed as two byte reads/writes (`inb(0x1f0)`, `inb(0x1f1)`) | `storage_mounted=no error=-2`: the PVD read back as garbage | added `inw`/`outw`; the data port is a 16-bit register |
-| ISO volume and directory timestamps came from the wall clock, so two builds of the same commit differed | reproducibility check (`SOURCE_DATE_EPOCH` twice → different digests) | `tools/mkiso.py` stamps from `SOURCE_DATE_EPOCH`; unit test added |
-| Loader advanced the sector address by bytes instead of disk units, so any multi-chunk kernel load read from a wild LBA | the first kernel image larger than 32 KiB hung the boot | `read_lba` advances in disk units, `read_dest` in bytes |
-| `%x` printed 8 zero-padded digits without a width | kernel unit test `pci id` | minimal digits unless a width is given |
-| `%llu` emitted a stray `u` | kernel unit test `u64` | consume the second `l` |
-| El Torito entry advertised 2048-byte units (2 instead of 8 virtual sectors) → firmware loaded the first 1024 bytes only | boot test (loader read a zeroed boot descriptor) | count virtual 512-byte sectors |
-| El Torito validation checksum computed with CRC32 instead of a 16-bit word sum | SeaBIOS refused to boot (`code 0008`) | correct word-sum checksum |
-| PVD field offsets shifted by one field | firmware rejected the volume | ECMA-119 offsets corrected |
-| Boot descriptor `desc_crc` at +100 vs the struct's +96 | diagnostics page showed `crc32 00000000` | offsets pinned with `_Static_assert` |
+| ATAPI IDENTIFY result discarded because a packet device answers with ERR set | serial log showed `storage drives=0` although the CD was present | wait for BSY only; treat ERR + signature as "ATAPI present" |
+| ATA data register accessed as two byte reads/writes | PVD read back as garbage (`storage_mounted=no error=-2`) | added `inw`/`outw`; the data port is 16-bit |
+| Loader advanced the sector address by bytes instead of disk units | first kernel image over 32 KiB hung the boot | `read_lba` advances in disk units |
+| ISO volume/directory timestamps came from the wall clock | two `SOURCE_DATE_EPOCH` builds had different digests | stamps come from `SOURCE_DATE_EPOCH`; test added |
+| Workflow test asserted on a literal that also appeared in a comment | test failed on the workflow itself | assert on parsed permission lines |
 
 ## 4. Emulated boot — `make boot-test`
 
 ```
-[PASS] emulator produced a serial log  (2563 bytes)
-[PASS] loader banner on serial
-[PASS] loader read the ISO9660 volume descriptor
-[PASS] loader loaded and verified the kernel image
-[PASS] protected-mode handoff
-[PASS] 32-bit kernel started
-[PASS] kernel reached the end of its boot log
-[PASS] genuine PS5 software is not claimed as running
-[PASS] kernel mounted the ISO9660 volume through its own block driver
-[PASS] kernel read a file back from the medium with a valid signature
-[PASS] chain reports a blocked stage with evidence
-[PASS] console shadow buffer dumped over serial  (6 dumps)
-[PASS] status page renders the compatibility chain
-[PASS] status page lists stage 1
-[PASS] status page lists the genuine home-screen stage
-[PASS] status page shows not-started stages
-[PASS] hardware page renders
-[PASS] hardware page reports PCI inventory
-[PASS] firmware page renders
-[PASS] firmware page states the truth about execution
-[PASS] diagnostics page renders
-[PASS] log page renders
-[PASS] diagnostics page reports the kernel storage self-test
-[PASS] storage stage evidence names the mounted volume
-[PASS] power page renders
-PASSED (25 checks)
+$ make boot-test
+PASSED: boot evidence written to build/test/boot-evidence.json
 ```
 
-Serial excerpt from the emulated machine (SeaBIOS, 128 MiB, emulated CD-ROM):
+25 checks, 0 failures (list in `build/test/boot-evidence.json`), covering the
+loader markers, the protected-mode handoff, `PC5-BOOT-OK`, the honest chain
+report, the kernel's own ATAPI/ISO9660 read-back, and the six rendered pages
+dumped from the console shadow buffer.
+
+Serial excerpt (SeaBIOS, 128 MiB, emulated CD-ROM):
 
 ```
-PC5 loader 0.1.0
+PC5 loader 0.2.0
 pc5: framebuffer 1600x0900
 pc5: medium is ISO9660, disk unit bytes 0800
 pc5: kernel image verified
 pc5: medium volume PC5
 pc5: entering 32-bit kernel
 
-PC5 KERNEL 0.1.0 (build 9576ad7, …)
-PC5-LOG kernel_entry eip=0x10000
-PC5-LOG protocol=1 magic=ok
-PC5-LOG display=framebuffer 1600x900 pitch=3200 font=firmware-8x16
-PC5-LOG cpu=GenuineIntel family=15 model=6 logical=1 long=0 avx=0
-PC5-LOG memory_mib=128 entries=5 top_mib=127
-PC5-LOG pci=5 display=1 network=1 storage=1 audio=0 usb=0
-PC5-LOG smbios=absent version=0.0
-PC5-LOG acpi=absent
-PC5-LOG medium_volume=PC5 sectors=47 kernel_lba=27 pvd=ok
-PC5-LOG firmware supplied=no note=no firmware image or manifest in this build
-PC5-LOG input keyboard=8042-ok
+PC5 KERNEL 0.2.0 (build …)
 PC5-LOG storage drives=1 selected=0 atapi=1 model=v86 ATAPI CD-ROM
 PC5-LOG storage_mounted volume=PC5 blocks=47 file=KERNEL.BIN bytes=36508 signature=ok
 PC5-LOG chain_blocked_at=5 stage=PS5 firmware image supplied
@@ -138,18 +126,53 @@ PC5-LOG genuine_ps5_execution=no
 PC5-BOOT-OK
 ```
 
-(The emulated CPU reports `family=15 model=6` and no long mode — that is v86's
-CPUID, not a real processor. On hardware these fields come from the host.)
+## 5. Reproducibility
 
-## 5. What these results do and do not establish
+```
+$ export BUILD_ID=$(git rev-parse HEAD) SOURCE_DATE_EPOCH=$(git log -1 --format=%ct HEAD)
+$ make clean && make iso && sha256sum build/pc5.iso
+0644cf66faf77cba1034123ac22a6451de340c1ba2bffc0b484bcc6a05e7837f  build/pc5.iso
+$ make clean && make iso && sha256sum build/pc5.iso
+0644cf66faf77cba1034123ac22a6451de340c1ba2bffc0b484bcc6a05e7837f  build/pc5.iso
+```
 
-Established: the image is a valid ISO9660/El Torito medium, its boot descriptor
-and kernel extent are consistent and CRC-protected, it boots on an emulated PC,
-the kernel runs, inventories the machine, mounts its own medium through its own
-ATAPI + ISO9660 code and reads a file back, renders six pages, answers on the
-serial console, and reports the PS5 compatibility chain honestly.
+Identical. The CI pipeline repeats this check and fails the job if the two
+digests differ.
+
+## 6. Release pipeline
+
+| Level | State |
+|---|---|
+| Workflow YAML parses and every `run:` step passes `bash -n` | VERIFIED locally (13 steps, 2 embedded python blocks compile) |
+| Pipeline steps executed locally in order | VERIFIED — two identical images, all suites green, assets staged |
+| Publish script logic (checksum gate, verdict gate, create-then-update, `--clobber`, asset assertion) | VERIFIED against a stub `gh` (`tests/test_release.py`) |
+| Workflow executed by GitHub Actions | **NOT VERIFIED** — the file cannot be pushed: the GitHub App token lacks the *workflows* permission |
+| Release created by CI, three assets uploaded | **NOT VERIFIED** |
+| Assets downloaded and checksum verified | **NOT VERIFIED** |
+
+Stage assets locally with:
+
+```
+$ make release-assets TAG=v0.2.0
+pc5: release assets staged in build/release
+0644cf66…  pc5.iso   pc5.iso.sha256   build-info.json
+```
+
+`build-info.json` then carries the `build` object (schema
+`pc5.build-metadata/1`): version `0.2.0`, tag, commit, build id,
+`SOURCE_DATE_EPOCH`, toolchain, the artifact hash re-computed from the file, and
+each test result with the SHA-256 of the log it came from.
+
+## 7. What these results do and do not establish
+
+Established: the image is a valid, reproducible ISO9660/El Torito medium; it
+boots on an emulated PC; the kernel runs, inventories the machine, mounts its own
+medium through its own ATAPI + ISO9660 code and reads a file back; six pages
+render; the serial console works; provenance is generated from measurements and
+refuses to describe a failing build as passing.
 
 Not established: physical hardware boot, any driver on real silicon, UEFI
 booting, controller/network/audio support, genuine PS5 firmware execution, PS5
-game installation or execution. See `docs/TESTING_STRATEGY.md` for the level
-definitions.
+game execution, a CI run, or a CI-published release. `docs/TESTING_STRATEGY.md`
+defines the levels; `docs/PS5_COMPATIBILITY_STATUS.md` records what the machine
+itself reports.

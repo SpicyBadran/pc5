@@ -18,6 +18,19 @@ supplied), licences checked. Evidence: `docs/PROJECT_AUDIT.md`.
 
 Not done here: UEFI boot, isohybrid USB, physical hardware (M2).
 
+## M1b — Automated, reproducible releases · **IMPLEMENTED, ACTIVATION BLOCKED**
+
+* `make metadata` + `make release-assets` produce `pc5.iso`, `pc5.iso.sha256`
+  and `build-info.json` with full provenance (`tools/buildmeta.py`).
+* `ci/build.yml` builds twice (identical hashes required), verifies, runs all
+  suites, stages the three assets, and — on a tag — publishes them through
+  `tools/publish_release.sh`. The publish script is tested against a stub `gh`.
+* Reproducibility is proven locally: two builds at the same commit and
+  `SOURCE_DATE_EPOCH` produce identical images.
+* **Blocked:** the file cannot be pushed to `.github/workflows/` because the
+  GitHub App token used in this session has no *workflows* permission; see
+  `ci/README.md`. Therefore no CI run and no published assets yet.
+
 ## M2 — Physical boot and safe installation · **IN PROGRESS**
 
 * Physical boot: **not attempted** (no hardware access in this environment).
