@@ -1,7 +1,8 @@
 # Test results
 
 Recorded on 2026-11-12 (sections 1–6 and 7.7: milestone A, base `719432c`;
-section 7: milestone B2, branch `arena/2f423f3b-pc5`, base `main` `4a7e2a7`).
+section 7: milestone B2, branch `arena/2f423f3b-pc5`, base `main` `4a7e2a7`;
+section 6 activation re-confirmation: milestone B3, base `main` `237725d`).
 Build under test: PC5 `0.2.0`. Sections 1–6 describe the BIOS-only medium as of
 `5ab7c48`; section 7 covers the UEFI boot path added on top of it and is the only
 section that mentions it.
@@ -152,6 +153,19 @@ digests differ.
 | Workflow executed by GitHub Actions | **NOT VERIFIED** — the file cannot be pushed: the GitHub App token lacks the *workflows* permission |
 | Release created by CI, three assets uploaded | **NOT VERIFIED** |
 | Assets downloaded and checksum verified | **NOT VERIFIED** |
+
+Re-confirmed on 2026-11-12 (milestone B3, base `main` `237725d`): the activation
+push was attempted again and rejected again, with the same cause —
+
+```
+ ! [remote rejected] arena/0e2b454e-pc5 -> arena/0e2b454e-pc5 (refusing to allow a GitHub App to create or update workflow `.github/workflows/build.yml` without `workflows` permission)
+```
+
+`gh api repos/SpicyBadran/pc5/actions/workflows` reports `total_count: 0` and
+`gh run list` is empty, so no workflow has ever been registered and no run has
+ever executed. The existing `pc5-0.1.0` release carries **zero assets**. Nothing
+in this section may be upgraded until a real run exists; see `ci/README.md` for
+the owner action that unblocks it.
 
 Stage assets locally with:
 
