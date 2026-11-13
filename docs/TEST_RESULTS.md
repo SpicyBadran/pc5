@@ -186,8 +186,13 @@ d941abdbb475e008c7706a6bb3c056985685ad00700a01d43054bf61e43e6b1c  build/uefi/BOO
 b66296c99abf30470a4fc2eb39777daeac174c2931e486e82aa8631965c10143  build/pc5.iso
 ```
 
-Both builds were repeated from `make clean` with the same inputs and all three
+Both builds were repeated from `make clean` with those inputs and all three
 digests were identical, so the UEFI path is as reproducible as the BIOS path.
+The build id is compiled into the kernel, so a build at the tip of this branch
+has a different (equally valid) ISO digest; rebuilt with
+`BUILD_ID=0cd396b…` and the same `SOURCE_DATE_EPOCH` it is
+`b562caf35ba2da97cd529c967be46d3a85b6542d7f6721760332f732f9bbc275`, with the
+same `efi.img` and `BOOTX64.EFI` digests above.
 
 | Artifact | Size | Checks |
 |---|---|---|
