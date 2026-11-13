@@ -97,18 +97,55 @@ polled, which keeps the boot deterministic and makes failures reproducible.
 * **Compatibility chain**: `chain_evaluate()` takes one argument per subsystem,
   so a new subsystem adds a stage without rewriting the reporting.
 
-## 5. Why the UEFI path and a Linux foundation are not in this build
+## 5. The UEFI boot path
 
-Both are required for the final objective and both are blocked by the *build
-environment*, not by design:
+The ISO carries two El Torito entries, so one medium boots on either kind of
+firmware:
 
-* no UEFI firmware image (OVMF) and no virtual machine capable of UEFI were
-  obtainable, so a UEFI loader could be written but not executed;
-* no Linux kernel source or binary was obtainable (apt and kernel.org are
-  unreachable, no release assets can be downloaded), so a Linux-based PC5
-  runtime could not be built or tested.
+```
+catalog +32   default entry  platform 0x00 (80x86)  -> boot/loader.S (BIOS)
+catalog +64   section 0x91   platform 0xEF (UEFI)   -> build/efi.img
+catalog +96   the UEFI entry                        -> \EFI\BOOT\BOOTX64.EFI
+```
 
-The BIOS path was therefore built first: it is fully testable here, it produces
-the required `build/pc5.iso`, and it establishes the hardware-inventory and
-reporting layer that both future paths reuse. See `docs/KNOWN_LIMITATIONS.md`
-and `docs/ROADMAP.md`.
+`boot/uefi/` is a freestanding PE32+ EFI application, cross-linked by binutils'
+`i386pep` emulation with `--enable-reloc-section`. No EDK2, no mingw: the same
+gcc and binutils the kernel uses. `bootx64.S` supplies the two things a C
+compiler will not: the ms_abi entry frame (firmware calls `efi_main` with
+ImageHandle in RCX and SystemTable in RDX, and PE images arrive with `.bss`
+uninitialised) and the handover trampoline.
+
+The handover order in that trampoline is the part that has to be exactly right:
+in 64-bit mode CR0.PG cannot be cleared, so the CPU leaves long mode with a far
+return into a 32-bit compatibility segment, and only then is paging switched
+off before the flat 32-bit GDT is loaded and the kernel is entered at `0x10000`
+with EBX = `0x4000`, which is what `boot/loader.S` does from real mode.
+
+What the loader reports comes from firmware and is labelled as such:
+
+| Field | UEFI source | Difference from the BIOS path |
+|---|---|---|
+| `e820_addr/count` | UEFI memory map, converted (conventional memory → type 1, everything else → type 2) | loader data is *not* reported as usable |
+| `vbe_mode_addr`, `vbe_ok` | a synthetic VBE block describing the GOP framebuffer (32 bpp, direct colour) | GOP format 1 (BGR) is reported honestly; the kernel writes RGB order, so channels swap |
+| `font_addr` | always 0 | firmware hands over no VGA font, so the kernel uses its text-mode fallback |
+| `pvd_ok`, `volume_id`, `kernel_lba`, `iso_sectors` | 0 / empty / 0 / 0 | the file protocol does not expose the ISO9660 descriptor or a file's LBA; `flags` bits 1 and 2 say so, and the kernel reads the descriptor itself when it probes storage |
+| `boot_drive` | `0xFFFFFFFF` | there is no BIOS drive on this path |
+
+Everything about that handover that can be checked without firmware is checked:
+`tools/eficheck.py` validates the PE32+ image (machine, subsystem, entry point,
+base relocations, no imports), `tools/mkefiimg.py` writes and re-reads the FAT
+ESP, and `tools/verify_iso.py` walks the ESP out of the finished ISO and
+confirms a PE32+ EFI application sits at `\EFI\BOOT\BOOTX64.EFI`.
+
+**Not done:** the loader has never run. No UEFI firmware image (OVMF) and no
+virtual machine that can boot UEFI were obtainable in the build environment, so
+the label is IMPLEMENTED — UNTESTED. The BIOS path remains the verified one.
+
+## 6. Why a Linux foundation is not in this build
+
+No Linux kernel source or binary was obtainable (apt and kernel.org are
+unreachable, no release assets can be downloaded), so a Linux-based PC5 runtime
+could not be built or tested. The bring-up kernel is therefore the whole
+runtime, and it establishes the hardware-inventory and reporting layer that a
+future Linux image would reuse. See `docs/KNOWN_LIMITATIONS.md` and
+`docs/ROADMAP.md`.

@@ -10,6 +10,10 @@
 | `python3` | 3.11 | ISO writer, verifier, firmware tool, tests |
 | `node` + `v86-system` | node 22 | only for `make boot-test` (`npm install v86-system`) |
 
+The UEFI application in `boot/uefi/` uses the *same* toolchain: it is a PE32+
+image produced by `ld -m i386pep` (binutils' 64-bit PE emulation), so neither a
+cross compiler nor EDK2 is needed.
+
 No other dependency is required: the build does not use a cross compiler, a
 distribution tool, or network access.
 
@@ -18,9 +22,10 @@ distribution tool, or network access.
 ```sh
 make info        # version, build id, timestamp, source list
 make             # build/pc5.iso, build/pc5.iso.sha256, build/build-info.json
-make unit        # host-side kernel unit tests (32 checks)
+make unit        # host-side kernel unit tests (35 checks)
 make check       # unit tests + python test suite
 make verify      # independent ISO verification (+ build/verify-report.json)
+make uefi        # just the UEFI application and the FAT ESP (build/efi.img)
 make boot-test   # boot the ISO in the emulator and assert the interface
 make metadata    # add provenance to build/build-info.json
 make release-assets  # stage pc5.iso, pc5.iso.sha256, build-info.json

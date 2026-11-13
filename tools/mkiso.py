@@ -253,6 +253,18 @@ class IsoBuilder:
         m_path = bytes(m_pt).ljust(SECTOR, b"\0")
 
         # -- boot catalog ----------------------------------------------
+        # El Torito catalog layout as firmware actually reads it:
+        #
+        #     +0   validation entry (32 bytes)
+        #     +32  initial/default entry  -> the 80x86 BIOS boot image
+        #     +64  section header 0x91, platform 0xEF, 1 entry
+        #     +96  the UEFI boot entry    -> the FAT ESP
+        #
+        # The initial/default entry is *not* preceded by a section header:
+        # BIOSes (SeaBIOS included) read offset 32 directly as a boot entry
+        # and only look for section headers when it is absent or unbootable.
+        # Putting a 0x90 header there makes the medium unbootable on BIOS,
+        # which was caught by the v86 boot test rather than by inspection.
         catalog = bytearray(SECTOR)
         # validation entry
         catalog[0] = 0x01                       # header id
@@ -261,27 +273,31 @@ class IsoBuilder:
         catalog[30:32] = b"\x55\xaa"
         words = sum(struct.unpack("<16H", bytes(catalog[0:32])))
         catalog[28:30] = struct.pack("<H", (0x10000 - (words & 0xFFFF)) & 0xFFFF)
-        # default (BIOS) entry
-        e = 32
-        catalog[e + 0] = 0x88                   # bootable
-        catalog[e + 1] = 0x00                   # no emulation
-        catalog[e + 2: e + 4] = struct.pack("<H", 0x07C0)
-        catalog[e + 4] = 0
-        catalog[e + 6: e + 8] = struct.pack("<H", bios_vsectors)
-        catalog[e + 8: e + 12] = struct.pack("<I", bios_lba)
+
+        # Entry layout: [0] 0x88 bootable, [1] media type (0 = no emulation),
+        # [2:4] load segment, [4] system type, [6:8] virtual sectors,
+        # [8:12] image LBA.  The platform belongs to the section *header*, not
+        # to the entry.
+        def boot_entry(offset: int, load_segment: int, virtual_sectors: int, lba: int):
+            catalog[offset + 0] = 0x88           # bootable
+            catalog[offset + 1] = 0x00           # no emulation
+            catalog[offset + 2: offset + 4] = struct.pack("<H", load_segment)
+            catalog[offset + 4] = 0              # system type (ignored)
+            catalog[offset + 6: offset + 8] = struct.pack("<H", virtual_sectors)
+            catalog[offset + 8: offset + 12] = struct.pack("<I", lba)
+
+        boot_entry(32, load_segment=0x07C0, virtual_sectors=bios_vsectors,
+                   lba=bios_lba)
         if self.uefi_image:
-            # section header for the UEFI platform, then its entry
-            s = 64
-            catalog[s + 0] = 0x91               # final section header
-            catalog[s + 1] = 0xEF               # platform: UEFI
-            catalog[s + 2: s + 4] = struct.pack("<H", 1)
-            e = 96
-            catalog[e + 0] = 0x88
-            catalog[e + 1] = 0x00
-            catalog[e + 2: e + 4] = struct.pack("<H", 0x0000)
-            catalog[e + 4] = 0
-            catalog[e + 6: e + 8] = struct.pack("<H", (len(self.uefi_image) + 511) // 512)
-            catalog[e + 8: e + 12] = struct.pack("<I", uefi_lba)
+            uefi_vsectors = (len(self.uefi_image) + 511) // 512
+            if uefi_vsectors > 0xFFFF:
+                raise SystemExit("UEFI image exceeds the 16-bit sector count")
+            # 0x90 = "more section headers follow", 0x91 = the last one.
+            catalog[64] = 0x91
+            catalog[65] = 0xEF                   # platform: UEFI
+            catalog[66:68] = struct.pack("<H", 1)
+            boot_entry(96, load_segment=0x0000, virtual_sectors=uefi_vsectors,
+                       lba=uefi_lba)
 
         # -- primary volume descriptor ---------------------------------
         stamp = build_time().strftime("%Y%m%d%H%M%S").encode("ascii")
@@ -375,6 +391,10 @@ class IsoBuilder:
                 "bios_boot_image_bytes": len(boot_image),
                 "uefi_image_lba": uefi_lba,
                 "uefi_image_sectors": self.uefi_sectors,
+                "uefi_image_bytes": len(self.uefi_image) if self.uefi_image else 0,
+                "default_entry_offset": 32,
+                "uefi_section_header_offset": 64 if self.uefi_image else None,
+                "uefi_entry_offset": 96 if self.uefi_image else None,
                 "root_dir_lba": root_lba,
             },
             "kernel": {"lba": kernel_lba, "bytes": kernel_size},

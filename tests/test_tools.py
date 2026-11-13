@@ -73,8 +73,11 @@ class MkIsoTests(unittest.TestCase):
         self.assertEqual(cat[0], 0x01)
         self.assertEqual(cat[30:32], b"\x55\xaa")
         self.assertEqual(sum(struct.unpack("<16H", cat[0:32])) % 0x10000, 0)
-        # the virtual sector count must be in 512-byte units
-        self.assertEqual(struct.unpack_from("<H", cat, 38)[0], 8)
+        # the initial/default entry sits at offset 32 (a BIOS reads it there)
+        # and the virtual sector count must be in 512-byte units
+        self.assertEqual(cat[32], 0x88)
+        self.assertEqual(cat[33], 0x00)
+        self.assertEqual(struct.unpack_from("<H", cat, 32 + 6)[0], 8)
 
     def test_boot_descriptor_is_patched(self):
         image, info = self.build()

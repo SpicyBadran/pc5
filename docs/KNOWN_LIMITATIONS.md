@@ -5,9 +5,15 @@ work that has secretly been done.
 
 ## Boot
 
-1. **No UEFI boot path.** The image is an El Torito BIOS image. A UEFI machine
-   without CSM/legacy support cannot boot it. (The ISO writer already supports a
-   second UEFI entry; the loader does not exist yet.)
+1. **The UEFI boot path is untested, not verified.** `boot/uefi/` builds a
+   PE32+ `\EFI\BOOT\BOOTX64.EFI` application and the ISO carries the El Torito
+   UEFI section that points at it, but the loader has never run: no OVMF image
+   and no UEFI-capable virtual machine were obtainable here. Treat a UEFI
+   machine as unsupported until a recorded boot exists (§7 of
+   `docs/TEST_RESULTS.md`). On the UEFI path the loader also cannot report the
+   ISO volume id, the kernel LBA or the ISO9660 descriptor (the file protocol
+   does not expose them), and it hands over no VGA font, so the kernel's
+   framebuffer console falls back to text mode.
 2. **Not isohybrid.** There is no MBR, so firmware that treats a USB stick
    strictly as a hard disk will not boot it.
 3. **No Secure Boot support.** No signed shim, no enrolled keys.
@@ -57,5 +63,7 @@ work that has secretly been done.
 20. **Physical hardware is untested.** Nothing in this repository has run on the
     reference Dell Inspiron 15 7577; the sandbox has no hardware access and no
     KVM. Emulated boot is the highest evidence level reached.
-21. **UEFI firmware was not available to test with**, so even the structural
-    UEFI work that the ISO writer supports is unexercised.
+21. **UEFI firmware was not available to test with.** The loader, the FAT ESP,
+    the PE32+ image and the ISO layout are checked structurally
+    (`tools/eficheck.py`, `tools/mkefiimg.py`, `tools/verify_iso.py`, 34 host
+    tests), but no boot of the UEFI path has been executed or recorded.

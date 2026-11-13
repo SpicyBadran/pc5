@@ -22,14 +22,14 @@ What *does* work today, verified in this repository:
 | Capability | Status | Evidence |
 |---|---|---|
 | Reproducible ISO build (`build/pc5.iso`) | COMPLETE AND VERIFIED | `make iso`, [`docs/TEST_RESULTS.md`](docs/TEST_RESULTS.md) |
-| ISO structure (ISO9660 + El Torito + boot descriptor) | COMPLETE AND VERIFIED | `make verify` → 32/32 checks |
+| ISO structure (ISO9660 + El Torito BIOS and UEFI sections + boot descriptor) | COMPLETE AND VERIFIED | `make verify` → 53/53 checks |
 | Boots on an emulated x86 PC (SeaBIOS, CD-ROM) | COMPLETE AND VERIFIED | `make boot-test` → 25/25 checks |
 | Kernel reads its own medium (ATAPI + ISO9660, no firmware calls) | COMPLETE AND VERIFIED (emulated) | `storage_mounted volume=PC5` in the boot log |
 | Hardware inventory (CPUID, E820, PCI, ACPI, SMBIOS) | IMPLEMENTED — TESTING REQUIRED | hardware page + serial log |
 | Framebuffer console with VGA text fallback | COMPLETE AND VERIFIED (emulated) | boot log, framebuffer self-test |
 | PS/2 keyboard navigation | IMPLEMENTED — TESTING REQUIRED | 8042 driver, emulator input |
 | Serial recovery console | COMPLETE AND VERIFIED | `pc5>` commands |
-| UEFI boot path | NOT STARTED (BIOS path only) | [`docs/KNOWN_LIMITATIONS.md`](docs/KNOWN_LIMITATIONS.md) |
+| UEFI boot path (PE32+ `\EFI\BOOT\BOOTX64.EFI`, GOP, FAT ESP) | IMPLEMENTED — UNTESTED (no UEFI firmware in the build environment) | `make iso` builds and verifies it; see [`docs/TEST_RESULTS.md`](docs/TEST_RESULTS.md) §7 |
 | DualSense controller support | NOT STARTED (needs a USB stack) | chain stage 3 |
 | Genuine PS5 firmware execution | BLOCKED — no verified path exists | [`docs/FIRMWARE_ANALYSIS.md`](docs/FIRMWARE_ANALYSIS.md) |
 | Actual PS5 game execution | NOT STARTED | [`docs/GAME_TEST_RESULTS.md`](docs/PS5_GAME_TEST_RESULTS.md) |
