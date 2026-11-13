@@ -109,6 +109,8 @@ compat32:
     movw %ax, %ss
     movl $KERNEL_STACK, %esp
 
+    .globl pc5_kernel_jump
+pc5_kernel_jump:
     ljmp $CODE32_SEL, $KERNEL_ADDR
 
 /* ------------------------------------------------------------------ */
@@ -128,6 +130,17 @@ pc5_uefi_halt:
 /* ------------------------------------------------------------------ */
     .section .data
     .balign 8
+    /* Handover descriptor: the first object in .data, so it can be found from
+     * the PE section table without symbols.  The two addresses are absolute
+     * and therefore appear in the relocation table, which means anything that
+     * loads this image (firmware, or a harness that relocates it) fixes them
+     * up exactly as the CPU will see them. */
+    .globl pc5_uefi_handover
+pc5_uefi_handover:
+    .ascii "PC5HND01"
+    .quad pc5_uefi_bridge         /* +8  the entry the harness/loader jumps to */
+    .quad pc5_kernel_jump         /* +16 the far jump into the 32-bit kernel  */
+
 saved_rsp:
     .quad 0
 

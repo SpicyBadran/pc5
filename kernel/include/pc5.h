@@ -25,6 +25,17 @@ typedef signed int s32;
 #define PC5_BOOT_MAGIC 0x42354350u /* 'P','C','5','B' */
 #define PC5_PROTOCOL_VERSION 1
 
+/* Fixed header at the very start of the kernel file, written by
+ * kernel/start.S and checked by every loader and by tools/verify_iso.py:
+ *   0  short jump over the header   (the kernel's first instruction)
+ *   2  "PC5K" signature
+ *   6  protocol version
+ * The signature therefore sits at offset 2, not offset 0. */
+#define PC5_KERNEL_SIG "PC5K"
+#define PC5_KERNEL_SIG_OFFSET 2
+#define PC5_KERNEL_VERSION_OFFSET 6
+#define PC5_KERNEL_HEADER_SIZE 8
+
 #define NULL ((void *)0)
 
 /* ---------------------------------------------------------------- boot */

@@ -402,8 +402,10 @@ def verify(path, info_path=None):
         kernel = image[kernel_lba * SECTOR : kernel_lba * SECTOR + kernel_bytes]
         rep.data["kernel"] = {"lba": kernel_lba, "bytes": kernel_bytes,
                               "sha256": hashlib.sha256(kernel).hexdigest()}
+        # Mirrors PC5_KERNEL_SIG_OFFSET / PC5_KERNEL_VERSION_OFFSET in
+        # kernel/include/pc5.h.
         rep.check("kernel image carries the PC5K signature",
-                  len(kernel) > 6 and kernel[2:6] == b"PC5K", kernel[:8].hex())
+                  len(kernel) >= 8 and kernel[2:6] == b"PC5K", kernel[:8].hex())
         rep.check("kernel image is not empty", kernel_bytes > 1024, str(kernel_bytes))
 
     # ---------------- build-info cross check ----------------
