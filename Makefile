@@ -44,7 +44,7 @@ KERNEL_CFLAGS := -m32 -std=gnu11 -O2 -Wall -Wextra -Wno-unused-parameter \
                  -DPC5_BUILD_ID='"$(BUILD_ID)"' \
                  -DPC5_BUILD_DATE='"$(BUILD_DATE)"'
 
-.PHONY: all iso uefi check test boot-test verify clean distclean info unit metadata release-assets
+.PHONY: all iso uefi check test boot-test stubtest verify clean distclean info unit metadata release-assets
 
 all: iso
 
@@ -168,7 +168,16 @@ verify: $(ISO)
 boot-test: $(ISO)
 	python3 tests/boot_test.py --iso $(ISO)
 
-test: check boot-test
+# Execute the real UEFI loader image against the stub firmware in
+# tests/uefi_stub_firmware.py.  This is not OVMF and never claims to be: it runs
+# the loader's own PE32+ code and the handover stub so the loader's logic is
+# executed rather than inspected.  Needs the `unicorn` Python package; exits 2
+# with an explanation when it is absent, so a missing dependency can never be
+# mistaken for a passing boot.
+stubtest: $(ISO)
+	python3 tests/uefi_stubtest.py --json-out $(BUILD)/stubtest-report.json
+
+test: check boot-test stubtest
 
 # Provenance for a release: version, commit, toolchain and whatever the test
 # logs in $(BUILD) can prove.  Reports that do not exist are simply not cited.

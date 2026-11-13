@@ -84,6 +84,12 @@ jobs:
       - name: Host tool tests
         run: python3 -m unittest discover -s tests -p 'test_*.py' -v 2>&1 | tee build/logs/host.log
 
+      - name: Execute the UEFI loader against the stub firmware
+        run: |
+          set -eu
+          python3 -m pip install --disable-pip-version-check "unicorn==2.1.4"
+          make stubtest | tee build/logs/stubtest.log
+
       - name: Boot the image in the emulator
         run: |
           set -eu

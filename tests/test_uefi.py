@@ -32,6 +32,11 @@ import mkefiimg  # noqa: E402
 import mkiso  # noqa: E402
 import verify_iso  # noqa: E402
 
+
+def read(path):
+    with open(path, "r", encoding="utf-8") as handle:
+        return handle.read()
+
 EFI_PAYLOAD = b"MZ" + bytes(0x3A) + struct.pack("<I", 0x80) + b"PE\0\0" + bytes(4096)
 
 
@@ -434,3 +439,91 @@ class UefiSourceContractTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+# ---------------------------------------------------------------------------
+# The stub-firmware harness itself
+# ---------------------------------------------------------------------------
+class StubFirmwareContractTests(unittest.TestCase):
+    """Keep the harness honest about what it is and how it fails.
+
+    The harness executes real loader code, so a bug in the harness is
+    indistinguishable from a loader bug in its output.  These tests pin the
+    parts that can silently rot: the dependency guard, the documented
+    limitation, and the fact that the suite is wired into the build.
+    """
+
+    def setUp(self):
+        self.stub_source = read(os.path.join(ROOT, "tests", "uefi_stub_firmware.py"))
+        self.suite_source = read(os.path.join(ROOT, "tests", "uefi_stubtest.py"))
+
+    def test_harness_is_not_presented_as_firmware_emulation(self):
+        # The single most consequential claim in this milestone: a stub
+        # firmware is not OVMF, and the module must say so in its own words.
+        lowered = self.stub_source.lower()
+        self.assertIn("this is not firmware", lowered)
+        self.assertIn("no ovmf image", lowered)
+
+    def test_missing_dependency_exits_two_with_instructions(self):
+        self.assertIn("pip install unicorn", self.suite_source)
+        self.assertIn("return 2", self.suite_source)
+        # The guard lives in main(), before verify() is ever called, so an
+        # absent dependency is reported as "cannot run" rather than as a boot
+        # that failed its checks.
+        main_body = self.suite_source[self.suite_source.index("def main("):]
+        guard = main_body.index("not stub.HAVE_UNICORN")
+        self.assertLess(guard, main_body.index("rep = verify("))
+
+    def test_makefile_exposes_the_suite_and_gates_test_on_it(self):
+        makefile = read(os.path.join(ROOT, "Makefile"))
+        self.assertIn("stubtest:", makefile)
+        self.assertRegex(makefile, r"test: check boot-test stubtest")
+
+    def test_gnu_as_and_microsoft_abi_are_checked_not_assumed(self):
+        # The harness reads ms_abi registers directly (RCX, RDX, R8, R9).  If it
+        # were changed to read the SysV ones it would silently pass a loader
+        # that used the wrong convention.
+        self.assertIn("MSABI_ARGS", self.stub_source)
+        self.assertIn("UC_X86_REG_RCX", self.stub_source)
+
+
+class LoaderRegressionTests(unittest.TestCase):
+    """Bugs the stub-firmware harness found in the loader, pinned for good.
+
+    Both of these were invisible to the structural tests and only surfaced when
+    the real PE32+ image was executed: one made a successful volume search look
+    like a failure, the other would have rejected every kernel the BIOS path
+    boots.
+    """
+
+    def setUp(self):
+        with open(os.path.join(ROOT, "boot", "uefi", "uefi_main.c"),
+                  encoding="utf-8") as fh:
+            self.loader = fh.read()
+        with open(os.path.join(ROOT, "kernel", "include", "pc5.h"),
+                  encoding="utf-8") as fh:
+            self.header = fh.read()
+
+    def test_volume_search_does_not_keep_a_status_from_a_failed_probe(self):
+        # find_kernel_volume() used to test the *last* status it saw, so a
+        # volume that answered NOT_FOUND for the probe ended the search even
+        # though a later volume had the kernel.  The loop must be driven by the
+        # chosen root, not by the status of the previous attempt.
+        start = self.loader.index("find_kernel_volume(struct efi_system_table")
+        end = self.loader.index("\n}\n", start)
+        body = self.loader[start:end]
+        self.assertRegex(body, r"for \([^)]*&&\s*!\w+")
+        self.assertNotIn("if (EFI_ERROR(status))\n            break;", body)
+
+    def test_kernel_signature_is_checked_at_the_documented_offset(self):
+        self.assertIn("#define PC5_KERNEL_SIG_OFFSET 2", self.header)
+        self.assertIn("PC5_KERNEL_SIG_OFFSET", self.loader)
+        # Reading "PC5K" at offset 0 would reject every real kernel: the file
+        # starts with the kernel's own jump instruction.
+        self.assertNotIn('memcmp(kernel.data, "PC5K"', self.loader)
+
+    def test_verifier_and_loader_read_the_same_header(self):
+        with open(os.path.join(ROOT, "tools", "verify_iso.py"),
+                  encoding="utf-8") as fh:
+            verifier = fh.read()
+        self.assertIn("kernel[2:6] == b\"PC5K\"", verifier)
