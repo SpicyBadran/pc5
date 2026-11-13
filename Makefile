@@ -44,7 +44,7 @@ KERNEL_CFLAGS := -m32 -std=gnu11 -O2 -Wall -Wextra -Wno-unused-parameter \
                  -DPC5_BUILD_ID='"$(BUILD_ID)"' \
                  -DPC5_BUILD_DATE='"$(BUILD_DATE)"'
 
-.PHONY: all iso check test boot-test verify clean distclean info unit metadata release-assets
+.PHONY: all iso uefi check test boot-test verify clean distclean info unit metadata release-assets
 
 all: iso
 
@@ -87,6 +87,47 @@ $(BUILD)/loader.bin: $(OBJ)/loader.o
 	@size=$$(stat -c %s $@); echo "pc5: loader image $$size bytes"; \
 	 if [ $$size -ne 4096 ]; then echo "pc5: loader must be exactly 4096 bytes (descriptor at 0xE00)"; exit 1; fi
 
+# ---------------------------------------------------------------- UEFI ----
+# The UEFI boot application is an ordinary PE32+ EFI image built with the
+# same binutils/gcc the rest of the tree uses: no EDK2, no mingw toolchain.
+# `ld -m i386pep` is binutils' 64-bit PE emulation, and --enable-reloc-section
+# derives the base relocation table from the absolute addresses the compiler
+# emits with -fno-pic.
+UEFI_CFLAGS := -m64 -std=gnu11 -O2 -Wall -Wextra -Wno-unused-parameter \
+               -ffreestanding -fno-pic -fno-stack-protector -fno-builtin \
+               -mno-red-zone -fno-asynchronous-unwind-tables -fno-unwind-tables \
+               -fno-tree-loop-distribute-patterns \
+               -Ikernel/include -Iboot/uefi
+UEFI_LDFLAGS := -m i386pep -nostdlib -T boot/uefi/bootx64.ld \
+                --image-base 0x10000000 --subsystem 10 \
+                --section-alignment 0x1000 --file-alignment 0x200 \
+                --major-subsystem-version 6 --minor-subsystem-version 0 \
+                --minor-os-version 0 --no-insert-timestamp --enable-reloc-section
+
+UEFI_SRC     := boot/uefi/uefi_main.c
+UEFI_ASM     := boot/uefi/bootx64.S
+UEFI_HDR     := boot/uefi/efi.h boot/uefi/bootx64.ld kernel/include/pc5.h
+
+$(OBJ)/uefi_main.o: $(UEFI_SRC) $(UEFI_HDR) | $(OBJ)
+	$(CC) $(UEFI_CFLAGS) -c $< -o $@
+
+$(OBJ)/bootx64.o: $(UEFI_ASM) | $(OBJ)
+	$(CC) -m64 -c $< -o $@
+
+UEFI_OBJ := $(OBJ)/bootx64.o $(OBJ)/uefi_main.o
+
+$(BUILD)/uefi/BOOTX64.EFI: $(UEFI_OBJ) boot/uefi/bootx64.ld
+	@mkdir -p $(BUILD)/uefi
+	$(LD) $(UEFI_LDFLAGS) -e _start $(UEFI_OBJ) -o $@
+	@python3 tools/eficheck.py $@ --require-relocs --max-bytes 196608
+
+$(BUILD)/efi.img: $(BUILD)/uefi/BOOTX64.EFI tools/mkefiimg.py
+	python3 tools/mkefiimg.py --size-kb 1440 \
+	  --file $(BUILD)/uefi/BOOTX64.EFI=EFI/BOOT/BOOTX64.EFI \
+	  --output $@ --info $(BUILD)/efi-info.json
+
+uefi: $(BUILD)/efi.img
+
 $(BUILD)/iso/README.TXT: docs/ISO_README.txt | $(BUILD)
 	@mkdir -p $(BUILD)/iso
 	cp $< $@
@@ -99,11 +140,12 @@ $(BUILD)/iso/BUILDINFO.TXT: | $(BUILD)
 $(BUILD):
 	@mkdir -p $(BUILD)
 
-$(ISO): $(BUILD)/loader.bin $(BUILD)/kernel.bin $(BUILD)/iso/README.TXT $(BUILD)/iso/BUILDINFO.TXT tools/mkiso.py
+$(ISO): $(BUILD)/loader.bin $(BUILD)/kernel.bin $(BUILD)/efi.img $(BUILD)/iso/README.TXT $(BUILD)/iso/BUILDINFO.TXT tools/mkiso.py
 	python3 tools/mkiso.py \
 	  --volume-id PC5 \
 	  --boot-image $(BUILD)/loader.bin \
 	  --desc-offset 0xE00 \
+	  --uefi-image $(BUILD)/efi.img \
 	  --file KERNEL.BIN=$(BUILD)/kernel.bin \
 	  --file README.TXT=$(BUILD)/iso/README.TXT \
 	  --file BUILDINFO.TXT=$(BUILD)/iso/BUILDINFO.TXT \
