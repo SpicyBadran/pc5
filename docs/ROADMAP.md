@@ -16,7 +16,7 @@ supplied), licences checked. Evidence: `docs/PROJECT_AUDIT.md`.
 * `make boot-test` → 25/25 checks on the v86/SeaBIOS emulated PC, including the
   kernel mounting its own volume through its ATAPI/ISO9660 driver.
 
-## M1c — UEFI boot path · **IMPLEMENTED — UNTESTED**
+## M1c — UEFI boot path · **IMPLEMENTED — EXECUTED AGAINST STUB FIRMWARE (not OVMF)**
 
 * `boot/uefi/`: a freestanding PE32+ EFI application (`\EFI\BOOT\BOOTX64.EFI`)
   built by binutils `i386pep`, filling the identical `struct pc5_boot_info`
@@ -28,9 +28,16 @@ supplied), licences checked. Evidence: `docs/PROJECT_AUDIT.md`.
   and `tools/verify_iso.py` walks the ESP out of the finished ISO.
 * The BIOS path still boots and passes 25/25 in the emulator, which is what
   caught the catalog-layout bug this milestone started with.
-* **Untested:** no OVMF/UEFI firmware and no UEFI-capable VM in the build
-  environment, so the loader has been built and inspected but never executed.
-  Nothing about it may be called verified until a run is recorded.
+* **Executed, but not under real firmware:** no OVMF/UEFI firmware and no
+  UEFI-capable VM exist in the build environment. `tests/uefi_stub_firmware.py`
+  therefore runs the real `BOOTX64.EFI` machine code on the Unicorn CPU emulator
+  with the UEFI protocols served by a stub at their specified slots, and
+  `tests/uefi_stubtest.py` (`make stubtest`, 42 checks, including two negative
+  runs) asserts the whole path from `_start` to the far jump into the kernel.
+  That harness found and fixed two real loader defects (`find_kernel_volume`
+  reading a stale status, and the `PC5K` signature read at the wrong offset).
+  It is not a compatibility result: nothing about the UEFI path may be called
+  verified until a recorded OVMF or hardware boot exists.
 
 Not done here: isohybrid USB, physical hardware (M2).
 

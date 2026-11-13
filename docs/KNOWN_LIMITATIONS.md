@@ -5,12 +5,17 @@ work that has secretly been done.
 
 ## Boot
 
-1. **The UEFI boot path is untested, not verified.** `boot/uefi/` builds a
-   PE32+ `\EFI\BOOT\BOOTX64.EFI` application and the ISO carries the El Torito
-   UEFI section that points at it, but the loader has never run: no OVMF image
-   and no UEFI-capable virtual machine were obtainable here. Treat a UEFI
-   machine as unsupported until a recorded boot exists (§7 of
-   `docs/TEST_RESULTS.md`). On the UEFI path the loader also cannot report the
+1. **The UEFI boot path has been executed, but not under real firmware.**
+   `boot/uefi/` builds a PE32+ `\EFI\BOOT\BOOTX64.EFI` application, the ISO
+   carries the El Torito UEFI section that points at it, and the loader's own
+   machine code now runs end to end against `tests/uefi_stub_firmware.py` — a
+   stub that serves the UEFI protocols at their specified slots on top of the
+   Unicorn CPU emulator (`make stubtest`, 42 checks). That harness has no ACPI,
+   PCI, interrupt or timer model, and it emulates `lgdt`, the segment loads and
+   the far return itself, so a passing run proves the loader's logic and the
+   handover contract — *not* UEFI compatibility. No OVMF image and no
+   UEFI-capable virtual machine were obtainable here, so treat a UEFI machine as
+   unsupported until a recorded boot exists (§7 of `docs/TEST_RESULTS.md`). On the UEFI path the loader also cannot report the
    ISO volume id, the kernel LBA or the ISO9660 descriptor (the file protocol
    does not expose them), and it hands over no VGA font, so the kernel's
    framebuffer console falls back to text mode.
