@@ -1,0 +1,250 @@
+name: build
+
+# PC5 continuous build and release pipeline.
+#
+#   push to any branch / pull request  -> build + verify + test, keep the assets
+#                                         as a workflow artifact
+#   push a tag (v* or pc5-*)           -> the same, then publish the three
+#                                         release assets to that GitHub release
+#   manual dispatch                    -> build + verify + test only (no publish)
+#
+# Nothing is uploaded to a release unless every step of the build job passed:
+# the publish job only runs when the tag job's `build` dependency succeeded.
+
+on:
+  push:
+    branches: ["**"]
+    tags: ["v*", "pc5-*"]
+  pull_request:
+  workflow_dispatch:
+
+# Least privilege by default; the release job asks for contents: write itself.
+permissions:
+  contents: read
+
+concurrency:
+  group: build-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  # The build reads both of these from the environment (see docs/BUILDING.md).
+  # SOURCE_DATE_EPOCH is derived from the commit inside the job, because it is
+  # only knowable after checkout.
+  BUILD_ID: ${{ github.sha }}
+  PYTHONUNBUFFERED: "1"
+
+jobs:
+  build:
+    name: build and verify
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - name: Check out the exact commit
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Record the environment
+        run: |
+          set -eu
+          echo "ref:        ${GITHUB_REF}"
+          echo "commit:     $(git rev-parse HEAD)"
+          echo "kernel:     $(uname -srm)"
+          echo "gcc:        $(gcc --version | head -n 1)"
+          echo "ld:         $(ld --version | head -n 1)"
+          echo "make:       $(make --version | head -n 1)"
+          echo "python:     $(python3 --version)"
+          echo "node:       $(node --version 2>/dev/null || echo none)"
+          echo "gh:         $(gh --version | head -n 1)"
+
+      - name: Configure reproducible build inputs
+        run: |
+          set -eu
+          epoch=$(git log -1 --format=%ct "${GITHUB_SHA}")
+          echo "SOURCE_DATE_EPOCH=${epoch}" >> "$GITHUB_ENV"
+          echo "commit time (SOURCE_DATE_EPOCH): ${epoch}"
+          echo "build id: ${BUILD_ID}"
+
+      - name: Build the ISO
+        run: |
+          set -eu
+          make clean
+          make iso | tee build-iso.log
+
+      - name: Verify ISO structure and checksums
+        run: make verify | tee build/verify.log
+
+      - name: Kernel unit tests
+        run: |
+          set -eu
+          mkdir -p build/logs
+          make unit | tee build/logs/unit.log
+
+      - name: Host tool tests
+        run: python3 -m unittest discover -s tests -p 'test_*.py' -v 2>&1 | tee build/logs/host.log
+
+      - name: Boot the image in the emulator
+        run: |
+          set -eu
+          npm install --no-save --no-audit --no-fund v86-system
+          make boot-test | tee build/logs/boot.log
+
+      - name: Prove the build is reproducible
+        run: |
+          set -eu
+          first=$(sha256sum build/pc5.iso | cut -d' ' -f1)
+          echo "first build:  ${first}"
+          make clean
+          make iso > /dev/null
+          second=$(sha256sum build/pc5.iso | cut -d' ' -f1)
+          echo "second build: ${second}"
+          echo "sha256=${second}" >> "$GITHUB_ENV"
+          if [ "${first}" != "${second}" ]; then
+            echo "::error::the two builds differ; the image is not reproducible with SOURCE_DATE_EPOCH=${SOURCE_DATE_EPOCH} and BUILD_ID=${BUILD_ID}"
+            exit 1
+          fi
+          echo "reproducible: two independent builds produced ${second}" | tee build/reproducibility.txt
+
+      - name: Verify, test and stage the release assets
+        run: |
+          set -eu
+          mkdir -p build/logs
+          # the verifier must run again on the image that will ship
+          make verify | tee build/verify-final.log
+          make unit > build/logs/unit.log
+          python3 -m unittest discover -s tests -p 'test_*.py' > build/logs/host.log 2>&1
+          make boot-test
+          make release-assets TAG="${GITHUB_REF_NAME}" COMMIT="${GITHUB_SHA}" \
+            PC5_CI_PROVIDER=github \
+            PC5_CI_WORKFLOW="${GITHUB_WORKFLOW}" \
+            PC5_CI_RUN_ID="${GITHUB_RUN_ID}" \
+            PC5_CI_RUN_URL="${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}"
+
+      - name: Check the staged assets
+        run: |
+          set -eu
+          cd build/release
+          ls -l
+          sha256sum -c pc5.iso.sha256
+          python3 - <<'PY'
+          import json
+          info = json.load(open("build-info.json"))
+          build = info.get("build", {})
+          verdict = build.get("verification", {}).get("verdict")
+          print("version:", build.get("version"), "commit:", build.get("commit"))
+          print("verification verdict:", verdict)
+          if verdict != "PASS":
+              raise SystemExit(f"refusing to publish: verification verdict is {verdict!r}")
+          if info["build"]["artifact"]["sha256"] != info["sha256"]:
+              raise SystemExit("build record and image disagree")
+          PY
+
+      - name: Keep the assets for this run
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: pc5-${{ github.sha }}
+          path: build/release/
+          if-no-files-found: error
+          retention-days: 30
+
+      - name: Keep the logs
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: pc5-logs-${{ github.sha }}
+          path: |
+            build/logs/
+            build/verify.log
+            build/verify-report.json
+            build/test/
+            build-iso.log
+          if-no-files-found: warn
+          retention-days: 14
+
+  release:
+    name: publish release assets
+    needs: build
+    if: startsWith(github.ref, 'refs/tags/')
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    permissions:
+      contents: write # the only job allowed to publish
+    steps:
+      - name: Fetch the verified assets
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          name: pc5-${{ github.sha }}
+          path: dist
+
+      - name: Check the assets before publishing
+        run: |
+          set -eu
+          cd dist
+          ls -l
+          sha256sum -c pc5.iso.sha256
+          test -f build-info.json
+
+      - name: Create or update the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          TAG: ${{ github.ref_name }}
+        run: |
+          set -eu
+          python3 - <<'PY' > release-notes.md
+          import json
+          info = json.load(open("dist/build-info.json"))
+          b = info.get("build", {})
+          art = b.get("artifact", {})
+          v = b.get("verification", {})
+          rows = {c["name"]: c for c in v.get("checks", [])}
+          def count(name, key="checks"):
+              c = rows.get(name)
+              return "not run" if not c else f'{c.get(key)} (0 failures)'
+          print(f"PC5 {b.get('version')} — boot environment and release assets.\n")
+          print("This release is built and verified by GitHub Actions from "
+                f"`{b.get('commit')}`; every asset below comes from that job.\n")
+          print(f"- image: `{art.get('name')}` — {art.get('bytes')} bytes, "
+                f"{art.get('sectors')} sectors")
+          print(f"- sha256: `{art.get('sha256')}`")
+          print(f"- build id: `{b.get('build_id')}`, SOURCE_DATE_EPOCH: "
+                f"`{b.get('source_date_epoch')}` (commit time)")
+          print("\nWhat was executed in CI:\n")
+          print(f"- ISO structure and every checksum: {count('iso_structure')} checks")
+          print(f"- emulated boot (v86/SeaBIOS): {count('emulated_boot')} checks")
+          print(f"- kernel unit tests: {count('kernel_unit')} checks")
+          print(f"- host tool tests: {count('host_tests', 'tests')} tests")
+          print("- reproducibility: two independent builds of this commit produced "
+                "the same sha256")
+          print("\nWhat this image does **not** do: it does not run genuine PS5 system "
+                "software, does not run PS5 games, and has no UEFI boot path, USB, "
+                "network, audio or installer yet. The 13-stage compatibility chain "
+                "inside the image names the current blocker.")
+          print("\nVerify it yourself:")
+          print("\n```\nsha256sum -c pc5.iso.sha256\npython3 tools/verify_iso.py pc5.iso --info build-info.json\n```")
+          PY
+          cat release-notes.md
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            echo "release ${TAG} already exists; refreshing its notes and assets"
+            gh release edit "$TAG" --notes-file release-notes.md
+          else
+            gh release create "$TAG" --title "PC5 ${TAG}" --notes-file release-notes.md
+          fi
+          gh release upload "$TAG" dist/pc5.iso dist/pc5.iso.sha256 dist/build-info.json --clobber
+
+      - name: Confirm the published assets
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          TAG: ${{ github.ref_name }}
+        run: |
+          set -eu
+          gh release view "$TAG" --json tagName,url,assets \
+            --jq '"release: \(.tagName)\nurl:     \(.url)\nassets:", (.assets[] | "  \(.name)  \(.size) bytes")'
+          count=$(gh release view "$TAG" --json assets --jq '.assets | length')
+          for want in pc5.iso pc5.iso.sha256 build-info.json; do
+            gh release view "$TAG" --json assets --jq '.assets[].name' | grep -qx "$want" \
+              || { echo "::error::asset $want is missing from release $TAG"; exit 1; }
+          done
+          echo "all three assets are attached (total ${count})"

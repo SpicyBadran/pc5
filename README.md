@@ -1,5 +1,7 @@
 # PC5
 
+[![build](https://github.com/SpicyBadran/pc5/actions/workflows/build.yml/badge.svg)](https://github.com/SpicyBadran/pc5/actions/workflows/build.yml)
+
 PC5 is an engineering project whose objective is to make compatible PC
 hardware operate as a PlayStation 5: boot the machine, reach genuine PS5 system
 software, and run real PS5 games.
@@ -36,13 +38,21 @@ What *does* work today, verified in this repository:
 
 ## Quick start
 
-Build (needs `gcc`, `binutils`, `make`, `python3`; nothing else):
+Download a verified build (every release is built and tested by CI and carries
+`pc5.iso`, `pc5.iso.sha256` and `build-info.json`):
+
+```sh
+gh release download --repo SpicyBadran/pc5 && sha256sum -c pc5.iso.sha256
+```
+
+Build it yourself (needs `gcc`, `binutils`, `make`, `python3`; nothing else):
 
 ```sh
 make            # writes build/pc5.iso + build/pc5.iso.sha256 + build/build-info.json
 make verify     # independent structural verification of the image
 make check      # host unit tests + kernel unit tests
 make boot-test  # boots the ISO in the emulator and asserts the interface
+make release-assets TAG=v0.2.0   # verify + metadata + the three release files
 ```
 
 Try the image without leaving the build host:

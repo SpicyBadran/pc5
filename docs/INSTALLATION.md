@@ -4,11 +4,15 @@
 
 ```sh
 gh release download --repo SpicyBadran/pc5       # or build it: see docs/BUILDING.md
+ls                     # pc5.iso  pc5.iso.sha256  build-info.json
 sha256sum -c pc5.iso.sha256
 ```
 
-`build/build-info.json` records the layout and per-file hashes; `pc5ctl verify`
-re-checks them independently.
+Release assets are produced by the CI pipeline from the tagged commit, never
+uploaded by hand. `build-info.json` records the layout, per-file hashes and the
+build provenance (commit, toolchain, and the result of each test that ran);
+`python3 tools/verify_iso.py pc5.iso --info build-info.json` re-checks the image
+independently.
 
 ## 2. Write it to a USB stick
 
