@@ -47,7 +47,9 @@ after `build` succeeded, and delegates the publishing to
 * Not proven: that GitHub Actions runs it and accepts the upload — that needs
   the file in `.github/workflows/`, which needs the permission above.
 
-## Activation attempt, 2026-11-12 (milestone B3)
+## Activation attempts (milestone B3)
+
+### 2026-11-13, against `main` `237725d`
 
 Performed the exact operation described above — `git mv ci/build.yml
 .github/workflows/build.yml`, commit, `git push` — against `main` `237725d`.
@@ -75,6 +77,32 @@ $ gh run list --limit 3
 Zero registered workflows and zero runs: the file has never been read by
 GitHub, so no pipeline has ever executed and no release asset has ever been
 published (the `pc5-0.1.0` release exists with an empty asset list).
+
+### 2026-11-13, retry against `main` `a266936`
+
+The permission was re-tested before attempting anything, and had not changed.
+One decisive push was made — a pure rename (`0 insertions, 0 deletions`) — and
+was rejected identically:
+
+```
+ ! [remote rejected] arena/79f9165d-pc5 -> arena/79f9165d-pc5 (refusing to allow a GitHub App to create or update workflow `.github/workflows/build.yml` without `workflows` permission)
+error: failed to push some refs to 'https://github.com/SpicyBadran/pc5.git'
+```
+
+Nothing reached the remote; the local commit was reverted to `a266936` and
+`.github/` removed. The permission probe results were unchanged:
+
+| Probe | Result |
+|---|---|
+| `gh api .../actions/workflows` | `200`, `X-Accepted-Github-Permissions: actions=read` |
+| `X-OAuth-Scopes` | empty — GitHub App installation token, not an OAuth token |
+| `gh api repos/SpicyBadran/pc5` | `admin`/`push`/`maintain`/`triage`/`pull` all `true` |
+| `gh api /installation/repositories` | `403 Resource not accessible by integration` |
+| `gh api .../actions/permissions` | `403 Resource not accessible by integration` |
+| registered workflows / runs | `0` / none |
+
+The installation still lacks **Workflows: Read and write**. No bypass was
+attempted: no Git Data API, no scratch repository, no alternate credentials.
 
 ### What the repository owner must do
 

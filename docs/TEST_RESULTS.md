@@ -1,8 +1,10 @@
 # Test results
 
-Recorded on 2026-11-12 (sections 1–6 and 7.7: milestone A, base `719432c`;
+Recorded on 2026-11-13 (sections 1–6 and 7.7: milestone A, base `719432c`;
 section 7: milestone B2, branch `arena/2f423f3b-pc5`, base `main` `4a7e2a7`;
-section 6 activation re-confirmation: milestone B3, base `main` `237725d`).
+section 6 activation attempts: milestone B3, bases `main` `237725d` and
+`a266936`). Earlier revisions of this file dated the B3 work 2026-11-12; the
+merges they describe are timestamped 2026-11-13, which is the date used now.
 Build under test: PC5 `0.2.0`. Sections 1–6 describe the BIOS-only medium as of
 `5ab7c48`; section 7 covers the UEFI boot path added on top of it and is the only
 section that mentions it.
@@ -154,18 +156,38 @@ digests differ.
 | Release created by CI, three assets uploaded | **NOT VERIFIED** |
 | Assets downloaded and checksum verified | **NOT VERIFIED** |
 
-Re-confirmed on 2026-11-12 (milestone B3, base `main` `237725d`): the activation
-push was attempted again and rejected again, with the same cause —
+The activation push has now been attempted twice, on 2026-11-13, and rejected
+both times with the same cause.
+
+Against `main` `237725d`:
 
 ```
  ! [remote rejected] arena/0e2b454e-pc5 -> arena/0e2b454e-pc5 (refusing to allow a GitHub App to create or update workflow `.github/workflows/build.yml` without `workflows` permission)
 ```
 
-`gh api repos/SpicyBadran/pc5/actions/workflows` reports `total_count: 0` and
-`gh run list` is empty, so no workflow has ever been registered and no run has
-ever executed. The existing `pc5-0.1.0` release carries **zero assets**. Nothing
-in this section may be upgraded until a real run exists; see `ci/README.md` for
-the owner action that unblocks it.
+Against `main` `a266936` (retry 2, after the permission was re-tested and found
+unchanged; one decisive push, a pure rename with 0 insertions and 0 deletions):
+
+```
+ ! [remote rejected] arena/79f9165d-pc5 -> arena/79f9165d-pc5 (refusing to allow a GitHub App to create or update workflow `.github/workflows/build.yml` without `workflows` permission)
+error: failed to push some refs to 'https://github.com/SpicyBadran/pc5.git'
+```
+
+Neither attempt reached the remote; the local commits were reverted and no
+`.github/` directory exists on any remote branch. `gh api
+repos/SpicyBadran/pc5/actions/workflows` reports `total_count: 0`, `gh run list`
+is empty, and the `pc5-0.1.0` release carries **zero assets** — so no workflow
+has ever been registered, no run has ever executed, and no release asset has
+ever been published by CI.
+
+The token is a GitHub App installation token (no OAuth scopes;
+`X-Accepted-Github-Permissions: actions=read`). It holds `admin`/`push`, but the
+installation lacks **Workflows: Read and write**; `/installation/repositories`
+and `/actions/permissions` both return `403 Resource not accessible by
+integration`.
+
+**Nothing in this section may be upgraded until a real run exists.** See
+`ci/README.md` for the owner action that unblocks it.
 
 Stage assets locally with:
 
