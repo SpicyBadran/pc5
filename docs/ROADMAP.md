@@ -12,11 +12,27 @@ supplied), licences checked. Evidence: `docs/PROJECT_AUDIT.md`.
 ## M1 — Working bootable PC5 ISO · **COMPLETE (emulated)**
 
 * `make iso` → `build/pc5.iso` (96,256 bytes, reproducible).
-* `make verify` → 32/32 structural checks.
+* `make verify` → 53/53 structural checks.
 * `make boot-test` → 25/25 checks on the v86/SeaBIOS emulated PC, including the
   kernel mounting its own volume through its ATAPI/ISO9660 driver.
 
-Not done here: UEFI boot, isohybrid USB, physical hardware (M2).
+## M1c — UEFI boot path · **IMPLEMENTED — UNTESTED**
+
+* `boot/uefi/`: a freestanding PE32+ EFI application (`\EFI\BOOT\BOOTX64.EFI`)
+  built by binutils `i386pep`, filling the identical `struct pc5_boot_info`
+  (offset-pinned against `kernel/include/pc5.h`), reading the GOP framebuffer and
+  the kernel through `EFI_SIMPLE_FILE_SYSTEM`, and entering the kernel in 32-bit
+  protected mode.
+* `tools/mkefiimg.py` (FAT12/16 ESP) and `tools/eficheck.py` (PE32+ validator)
+  are new; `tools/mkiso.py` now emits the BIOS default entry plus a UEFI section
+  and `tools/verify_iso.py` walks the ESP out of the finished ISO.
+* The BIOS path still boots and passes 25/25 in the emulator, which is what
+  caught the catalog-layout bug this milestone started with.
+* **Untested:** no OVMF/UEFI firmware and no UEFI-capable VM in the build
+  environment, so the loader has been built and inspected but never executed.
+  Nothing about it may be called verified until a run is recorded.
+
+Not done here: isohybrid USB, physical hardware (M2).
 
 ## M1b — Automated, reproducible releases · **IMPLEMENTED, ACTIVATION BLOCKED**
 

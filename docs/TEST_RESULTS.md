@@ -1,7 +1,9 @@
 # Test results
 
-Recorded on 2026-11-13. Build under test: PC5 `0.2.0`, source commit `5ab7c48`
-(branch `arena/20475d93-pc5`, based on `main` `09b885a`).
+Recorded on 2026-11-13. Build under test: PC5 `0.2.0`, source commit `719432c`
+plus the uncommitted UEFI milestone work (branch `arena/42c51afe-pc5`).
+Sections 1–6 describe the BIOS-only medium as of `5ab7c48`; section 7 covers the
+UEFI boot path added on top of it and is the only section that mentions it.
 Host: Debian 12 x86-64, gcc 12.2.0, binutils 2.40, make 4.3, python 3.11.2,
 node 22.22.3, v86 (npm `v86-system` 0.5.0) for the emulated boot test.
 
@@ -163,6 +165,80 @@ pc5: release assets staged in build/release
 `SOURCE_DATE_EPOCH`, toolchain, the artifact hash re-computed from the file, and
 each test result with the SHA-256 of the log it came from.
 
+## 7. UEFI boot path — IMPLEMENTED, UNTESTED
+
+Added on branch `arena/42c51afe-pc5` (base `main` `719432c`). Everything below
+was produced by the command quoted next to it on this tree.
+
+```
+$ export BUILD_ID=719432cea7d1ebe7c748efefcac1cdfa6962439e
+$ export SOURCE_DATE_EPOCH=1794561355
+$ make clean && make iso
+pc5: kernel image 36636 bytes (limit 585728)
+22/22 checks passed                       <- tools/eficheck.py on BOOTX64.EFI
+pc5: wrote build/efi.img (FAT12, 1474560 bytes, 22/2847 clusters used)
+pc5: wrote build/pc5.iso (1570816 bytes, 767 sectors)
+pc5: sha256 b66296c99abf30470a4fc2eb39777daeac174c2931e486e82aa8631965c10143
+
+$ sha256sum build/uefi/BOOTX64.EFI build/efi.img build/pc5.iso
+d941abdbb475e008c7706a6bb3c056985685ad00700a01d43054bf61e43e6b1c  build/uefi/BOOTX64.EFI
+01e3004b1a5317e93a54d256da21a0dea9d52f63002ef289f20377b40734aaf5  build/efi.img
+b66296c99abf30470a4fc2eb39777daeac174c2931e486e82aa8631965c10143  build/pc5.iso
+```
+
+Both builds were repeated from `make clean` with the same inputs and all three
+digests were identical, so the UEFI path is as reproducible as the BIOS path.
+
+| Artifact | Size | Checks |
+|---|---|---|
+| `build/uefi/BOOTX64.EFI` | 9,771 bytes | 22/22 (`tools/eficheck.py --require-relocs --max-bytes 196608`) |
+| `build/efi.img` | 1,474,560 bytes (FAT12, 2,880 sectors) | read back with `tools/mkefiimg.py --list` |
+| `build/pc5.iso` | 1,570,816 bytes (767 sectors) | 53/53 (`make verify`) |
+
+The ISO grew from 96,256 to 1,570,816 bytes because it now carries the 1.44 MB
+ESP. Selected verifier lines that only exist because of this milestone:
+
+```
+[PASS] catalog has an initial entry
+[PASS] initial entry is the 80x86 BIOS default  (0x0)
+[PASS] the last section header is 0x91 (no further sections)  (145)
+[PASS] no duplicate platform sections  ({0: 1, 239: 1})
+[PASS] UEFI section entry is bootable  (0x88)
+[PASS] UEFI section entry is no-emulation  (0)
+[PASS] UEFI entry loads at segment 0  (0x0)
+[PASS] UEFI image lies inside the ISO  (LBA 26 +2880 sectors)
+[PASS] UEFI image has a valid FAT boot sector
+[PASS] UEFI image is FAT12 or FAT16 (El Torito bootable form)  (2847 clusters -> FAT12)
+[PASS] ESP root directory contains EFI/
+[PASS] ESP contains EFI/BOOT
+[PASS] ESP contains EFI/BOOT/BOOTX64.EFI
+[PASS] BOOTX64.EFI content is readable through the FAT chain  (9771 bytes)
+[PASS] BOOTX64.EFI machine is x86-64  (0x8664)
+[PASS] BOOTX64.EFI is PE32+  (0x20b)
+[PASS] BOOTX64.EFI subsystem is EFI application  (10)
+```
+
+Host suite: `python3 -m unittest discover -s tests -p 'test_*.py'` → **Ran 66
+tests, OK** (was 32). The new `tests/test_uefi.py` holds the 34 new tests:
+`FatImageTests` (12), `EfiCheckTests` (10), `UefiIsoTests` (7) and
+`UefiSourceContractTests` (5). Kernel unit tests are unchanged at 35 checks, and
+`make boot-test` still passes **25/25** on the BIOS path with the UEFI-capable
+ISO, which is the regression test that matters here.
+
+Bug this milestone started with, caught by the emulator rather than by review:
+
+| Bug | Caught by | Fix |
+|---|---|---|
+| A 0x90 section header written in front of the BIOS default entry | `make boot-test` produced a 0-byte serial log: SeaBIOS reads catalog offset 32 as an entry, saw 0x90, and refused the medium | default entry back at +32, UEFI section header at +64, entry at +96; the verifier and tests now pin that layout |
+
+**What is not established:** the UEFI loader has never executed. No OVMF image,
+no QEMU and no UEFI-capable virtual machine were obtainable in this environment
+(`command -v qemu-system-x86_64` → not found; no `/usr/share/OVMF`), so the
+loader is built, inspected field by field, and structurally verified inside the
+finished ISO — nothing more. The label is therefore **IMPLEMENTED — UNTESTED**,
+and it stays that way until a boot in real or emulated UEFI firmware is recorded
+here with its serial log.
+
 ## 7. What these results do and do not establish
 
 Established: the image is a valid, reproducible ISO9660/El Torito medium; it
@@ -172,7 +248,8 @@ render; the serial console works; provenance is generated from measurements and
 refuses to describe a failing build as passing.
 
 Not established: physical hardware boot, any driver on real silicon, UEFI
-booting, controller/network/audio support, genuine PS5 firmware execution, PS5
-game execution, a CI run, or a CI-published release. `docs/TESTING_STRATEGY.md`
+booting (built and verified as a medium, never executed — §7),
+controller/network/audio support, genuine PS5 firmware execution, PS5 game
+execution, a CI run, or a CI-published release. `docs/TESTING_STRATEGY.md`
 defines the levels; `docs/PS5_COMPATIBILITY_STATUS.md` records what the machine
 itself reports.
