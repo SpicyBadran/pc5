@@ -81,6 +81,8 @@ polled, which keeps the boot deterministic and makes failures reproducible.
 | `tests/boot_test.py` | asserts boot markers and the rendered interface, writes `build/test/boot-evidence.json` |
 | `tests/kernel_unit.c` | host-side unit tests for the kernel's pure logic |
 | `tests/test_tools.py` | unit tests for the ISO writer, verifier and firmware tool |
+| `tests/uefi_stub_firmware.py` | executes the real `BOOTX64.EFI` on the Unicorn CPU emulator against a stub firmware (protocols at their specified slots, two file-system volumes); emulates `lgdt`/segment loads/`lretq` |
+| `tests/uefi_stubtest.py` | asserts 42 properties of that run, plus two negative runs; `make stubtest` |
 
 ## 4. Interfaces that the next stages plug into
 
@@ -137,9 +139,16 @@ base relocations, no imports), `tools/mkefiimg.py` writes and re-reads the FAT
 ESP, and `tools/verify_iso.py` walks the ESP out of the finished ISO and
 confirms a PE32+ EFI application sits at `\EFI\BOOT\BOOTX64.EFI`.
 
-**Not done:** the loader has never run. No UEFI firmware image (OVMF) and no
-virtual machine that can boot UEFI were obtainable in the build environment, so
-the label is IMPLEMENTED — UNTESTED. The BIOS path remains the verified one.
+The handover is also *executed*: `tests/uefi_stub_firmware.py` runs the real
+`BOOTX64.EFI` on the Unicorn CPU emulator, with firmware replaced by a stub that
+answers Simple Text Output, GOP, Boot Services, Loaded Image, Device Path and a
+two-volume Simple File System at the slots the specification assigns, and
+`tests/uefi_stubtest.py` (42 checks, `make stubtest`) asserts the trace, the
+boot-info block, the VBE block, the E820 conversion, `ExitBootServices`, the GDT
+and the far jump. Because that stub is not firmware — no ACPI, no PCI, no
+interrupts, and `lgdt`/segment loads/`lretq` emulated by the harness — the label
+is IMPLEMENTED — EXECUTED AGAINST STUB FIRMWARE (not OVMF). The BIOS path remains
+the verified one, and only a recorded OVMF or hardware boot can change that.
 
 ## 6. Why a Linux foundation is not in this build
 

@@ -14,11 +14,36 @@ build/pc5.iso
 
 ## Status
 
-**IMPLEMENTED — UNTESTED.** The loader builds, is inspected field by field,
-and is verified inside the finished ISO, but it has never been executed: no
-OVMF image and no UEFI-capable virtual machine were obtainable in the build
-environment. See §7 of `../docs/TEST_RESULTS.md`. Do not describe the UEFI path
-as working until a boot is recorded there.
+**IMPLEMENTED — EXECUTED AGAINST STUB FIRMWARE (not OVMF).**
+
+The loader now *runs*: `tests/uefi_stub_firmware.py` loads the real
+`build/uefi/BOOTX64.EFI` the way firmware does, applies its base relocations at
+an address other than its preferred base, serves the protocols it calls at the
+slots the specification assigns, and follows the code from `_start` through
+`efi_main` and the handover into 32-bit protected mode.
+`tests/uefi_stubtest.py` asserts 42 properties of that run, including two
+negative runs (a corrupt kernel signature, no kernel on any volume).
+
+What that does **not** establish: that the image boots under real UEFI
+firmware. There is no ACPI, PCI, interrupt or timer model, no NVRAM, no
+Secure Boot, no real `ExitBootServices` memory-map transition, and `lgdt`,
+segment loads and the far return are emulated by the harness because the CPU
+emulator does not implement them. A passing run means the loader's own code ran
+and did the right thing against a stub; it is not a compatibility result. The
+gap closes only with a recorded boot under OVMF or on hardware — the command is
+at the end of this file.
+
+Two real loader defects were found by running it and are fixed here:
+
+* `find_kernel_volume()` tested the status of the last probe, so a volume
+  without the kernel ended the search even when a later volume had it (E2 on a
+  healthy medium);
+* the kernel signature was read at offset 0, but the kernel file starts with its
+  own jump instruction and `PC5K` sits at offset 2 — every kernel the BIOS path
+  boots would have been rejected (E4).
+
+Both are pinned by regression tests in `tests/test_uefi.py`. See §7 of
+`../docs/TEST_RESULTS.md` for the recorded output.
 
 ## What is in this directory
 
@@ -75,7 +100,7 @@ the same code goes to COM1 when a serial port probes successfully.
 | Code | Meaning |
 |---|---|
 | E1 | no file system on the volume we were loaded from |
-| E2 | cannot open the root directory |
+| E2 | no volume on this machine holds `\KERNEL.BIN` |
 | E3 | `\KERNEL.BIN` could not be read |
 | E4 | kernel image has no `PC5K` signature |
 | E5 | kernel boot protocol version mismatch |
@@ -86,13 +111,25 @@ the same code goes to COM1 when a serial port probes successfully.
 
 ## Testing it
 
-Everything testable without firmware is tested (`tests/test_uefi.py`, 34 tests):
+Structural checks, with no firmware and no emulator (`tests/test_uefi.py`):
 
 ```
 python3 -m unittest tests.test_uefi -v
 python3 tools/eficheck.py build/uefi/BOOTX64.EFI --require-relocs
 python3 tools/mkefiimg.py --list build/efi.img
 ```
+
+Execution of the loader itself, against the stub firmware:
+
+```
+pip install "unicorn==2.1.4"   # the harness dependency
+make stubtest              # exits 2 with an explanation if unicorn is absent
+```
+
+`make stubtest` prints one line per check and writes
+`build/stubtest-report.json`. It is wired into `make test`, and a missing
+`unicorn` is reported as *cannot run* (exit 2) rather than as a failed boot, so
+the dependency can never be mistaken for a passing or a failing boot.
 
 To close the gap, boot `build/pc5.iso` in QEMU with OVMF:
 

@@ -68,6 +68,23 @@ _Static_assert(sizeof(struct pc5_boot_info) == 104, "abi");
 _Static_assert(__builtin_offsetof(struct vbe_mode_info, pitch) == 0x10, "vbe abi");
 _Static_assert(__builtin_offsetof(struct vbe_mode_info, phys_base) == 0x28, "vbe abi");
 
+/* The structures below are walked by the numbers the UEFI specification
+ * assigns, so the offsets this loader relies on are pinned.  A wrong slot here
+ * does not misbehave gently: it jumps into the middle of some other service. */
+_Static_assert(__builtin_offsetof(struct efi_boot_services, handle_protocol) == 152, "boot services abi");
+_Static_assert(__builtin_offsetof(struct efi_boot_services, locate_handle) == 176, "boot services abi");
+_Static_assert(__builtin_offsetof(struct efi_boot_services, locate_device_path) == 184, "boot services abi");
+_Static_assert(__builtin_offsetof(struct efi_boot_services, exit_boot_services) == 232, "boot services abi");
+_Static_assert(__builtin_offsetof(struct efi_system_table, con_out) == 64, "system table abi");
+_Static_assert(__builtin_offsetof(struct efi_system_table, boot_services) == 96, "system table abi");
+_Static_assert(__builtin_offsetof(struct efi_file, open) == 8, "file protocol abi");
+_Static_assert(__builtin_offsetof(struct efi_file, read) == 32, "file protocol abi");
+_Static_assert(sizeof(struct efi_loaded_image) == 96, "loaded image abi");
+_Static_assert(__builtin_offsetof(struct efi_loaded_image, device_handle) == 24, "loaded image abi");
+_Static_assert(__builtin_offsetof(struct efi_simple_file_system, open_volume) == 8, "fs abi");
+_Static_assert(__builtin_offsetof(struct efi_gop, mode) == 24, "gop abi");
+_Static_assert(__builtin_offsetof(struct efi_gop_mode, frame_buffer_base) == 24, "gop abi");
+
 #define BOOT_INFO ((struct pc5_boot_info *)BOOT_INFO_ADDR)
 #define E820 ((struct e820_entry *)E820_BUF_ADDR)
 #define VBE ((struct vbe_mode_info *)VBE_MODE_ADDR)
@@ -396,6 +413,113 @@ static int read_file(struct efi_system_table *st, struct efi_file *root,
     return 0;
 }
 
+/* Walk a device path and report what it describes, so the trace names the
+ * device the kernel was actually loaded from. */
+static const char *path_kind(const struct efi_device_path *node)
+{
+    if (!node)
+        return "none";
+    if (node->type == EFI_DEVICE_PATH_TYPE_MEDIA) {
+        if (node->sub_type == EFI_DEVICE_PATH_SUBTYPE_MEDIA_CDROM)
+            return "cdrom";
+        return "media";
+    }
+    if (node->type == EFI_DEVICE_PATH_TYPE_HARDWARE)
+        return "hardware";
+    if (node->type == EFI_DEVICE_PATH_TYPE_MESSAGING)
+        return "messaging";
+    if (node->type == EFI_DEVICE_PATH_TYPE_ACPI)
+        return "acpi";
+    return "other";
+}
+
+/* Find the volume that holds \KERNEL.BIN.
+ *
+ * On an El Torito UEFI boot the application does *not* come from the ISO9660
+ * filesystem: firmware copies the FAT ESP out of the boot catalog and mounts
+ * that as its own device.  The kernel image lives on the ISO9660 volume, which
+ * is a different device with a different file system.  Listing every
+ * EFI_SIMPLE_FILE_SYSTEM_PROTOCOL handle and trying to open the kernel in each
+ * finds it without guessing and without hard-coding LBA arithmetic - the ESP is
+ * small and its file list is short, so the wrong candidate fails fast.
+ *
+ * Returns the file system handle, or 0 when no volume could provide the file. */
+static efi_handle find_kernel_volume(struct efi_system_table *st, efi_handle image_handle,
+                                     struct efi_file **kernel_root)
+{
+    struct efi_boot_services *bs = st->boot_services;
+
+    /* The device we were loaded from, for the trace. */
+    struct efi_loaded_image *loaded = 0;
+    if (!EFI_ERROR(bs->handle_protocol(image_handle,
+                                       (struct efi_guid *)&EFI_LOADED_IMAGE_PROTOCOL_GUID,
+                                       (void **)&loaded)) && loaded) {
+        struct efi_device_path *device_path = 0;
+        if (!EFI_ERROR(bs->handle_protocol(loaded->device_handle,
+                                           (struct efi_guid *)&EFI_DEVICE_PATH_PROTOCOL_GUID,
+                                           (void **)&device_path)) && device_path) {
+            uefi_puts("PC5-UEFI: image_device=");
+            uefi_puts(path_kind(device_path));
+            uefi_puts("\r\n");
+        }
+    }
+
+    /* Enumerate every handle with a file system on it. */
+    u64 size = 0;
+    efi_status status = bs->locate_handle(&size, EFI_LOCATE_BY_DEVICE_PATH, 0, 0);
+    if (status != EFI_BUFFER_TOO_SMALL || !size)
+        return 0;
+    size += 4 * sizeof(efi_handle);       /* handles can appear between calls */
+    void *buffer = 0;
+    if (EFI_ERROR(bs->allocate_pool(EFI_LOADER_DATA, size, &buffer)) || !buffer)
+        return 0;
+    u64 count = size / sizeof(efi_handle);
+    status = bs->locate_handle(&size, EFI_LOCATE_BY_DEVICE_PATH, 0, (efi_handle *)buffer);
+    if (EFI_ERROR(status)) {
+        bs->free_pool(buffer);
+        return 0;
+    }
+    count = size / sizeof(efi_handle);
+
+    efi_handle chosen = 0;
+    u32 candidates = 0;
+    for (u64 i = 0; i < count && !chosen; i++) {
+        efi_handle device = ((efi_handle *)buffer)[i];
+        struct efi_simple_file_system *fs = 0;
+        if (EFI_ERROR(bs->handle_protocol(device,
+                (struct efi_guid *)&EFI_SIMPLE_FILE_SYSTEM_PROTOCOL_GUID, (void **)&fs)) || !fs)
+            continue;               /* this handle has no file system        */
+        candidates++;
+
+        struct efi_file *root = 0;
+        if (EFI_ERROR(fs->open_volume(fs, &root)) || !root)
+            continue;               /* a volume firmware will not let us read */
+
+        /* Is the kernel on this volume?  A volume without it closes cleanly
+         * and the search moves on; the ESP the application was booted from is
+         * exactly that case on a real El Torito UEFI boot. */
+        struct efi_file *file = 0;
+        efi_status status = root->open(root, &file, u"\\KERNEL.BIN",
+                                       EFI_FILE_MODE_READ, 0);
+        root->close(root);          /* also closes a failed Open's handle set  */
+        if (EFI_ERROR(status) || !file) {
+            continue;
+        }
+        file->close(file);
+
+        /* Reopen the chosen volume for the caller.  Nothing here is a
+         * guess: the volume that satisfied the test is the volume returned. */
+        struct efi_file *kernel_root_local = 0;
+        if (EFI_ERROR(fs->open_volume(fs, &kernel_root_local)) || !kernel_root_local)
+            continue;
+        chosen = device;
+        *kernel_root = kernel_root_local;
+    }
+    bs->free_pool(buffer);
+    trace_dec("filesystem_volumes", candidates);
+    return chosen;
+}
+
 /* UTF-16 -> printable ASCII.  Anything outside ASCII becomes '?', so a stray
  * high byte can never end up in a char[] the kernel prints or compares. */
 static void utf16_to_ascii(const u16 *src, char *dst, u32 max)
@@ -435,18 +559,13 @@ efi_status EFIAPI efi_main(efi_handle image_handle, struct efi_system_table *st)
     if (!gop_init(st))
         trace("display=gop_unavailable,text_fallback");
 
-    /* 2. the volume firmware loaded us from */
-    struct efi_simple_file_system *fs = 0;
-    efi_status status = st->boot_services->handle_protocol(
-        image_handle, (struct efi_guid *)&EFI_SIMPLE_FILE_SYSTEM_PROTOCOL_GUID,
-        (void **)&fs);
-    if (EFI_ERROR(status) || !fs)
-        fail("E1", "no file system on the volume we were loaded from", status);
+    /* 2. the volume that holds the kernel (not necessarily the one we booted
+     *    from: on El Torito the ESP is a separate device) */
     struct efi_file *root = 0;
-    status = fs->open_volume(fs, &root);
-    if (EFI_ERROR(status) || !root)
-        fail("E2", "cannot open the root directory of the boot volume", status);
-    trace("volume_opened");
+    efi_handle volume = find_kernel_volume(st, image_handle, &root);
+    if (!volume || !root)
+        fail("E2", "no volume on this machine holds \\KERNEL.BIN", 0);
+    trace("kernel_volume_opened");
 
     /* Proof that the medium is readable, without pretending to have read the
      * ISO9660 descriptor (the file protocol cannot expose it). */
@@ -465,15 +584,22 @@ efi_status EFIAPI efi_main(efi_handle image_handle, struct efi_system_table *st)
         fail("E3", "cannot read \\KERNEL.BIN from the boot volume", (u64)err);
     trace_dec("kernel_bytes_read", kernel.size);
 
-    if (kernel.size < 8 || memcmp(kernel.data, "PC5K", 4) != 0)
+    /* The file layout is fixed by kernel/start.S and exposed as
+     * PC5_KERNEL_SIG_OFFSET in kernel/include/pc5.h: byte 0 is a two-byte jump
+     * over the header, then "PC5K" and the protocol version.  Reading the
+     * signature at offset 0 would reject every kernel the BIOS path boots. */
+    if (kernel.size < PC5_KERNEL_HEADER_SIZE ||
+        memcmp(kernel.data + PC5_KERNEL_SIG_OFFSET, PC5_KERNEL_SIG, 4) != 0)
         fail("E4", "kernel image does not carry the PC5K signature", 0);
-    trace_dec("kernel_protocol_version", kernel.data[4]);
-    if (kernel.data[4] != PC5_PROTOCOL_VERSION)
-        fail("E5", "kernel boot protocol version mismatch", kernel.data[4]);
+    u8 protocol = kernel.data[PC5_KERNEL_VERSION_OFFSET];
+    trace_dec("kernel_protocol_version", protocol);
+    if (protocol != PC5_PROTOCOL_VERSION)
+        fail("E5", "kernel boot protocol version mismatch", protocol);
     if (kernel.size > KERNEL_LIMIT - KERNEL_ADDR)
         fail("E6", "kernel image is larger than the load window", kernel.size);
 
     /* 4. the memory map */
+    efi_status status = 0;
     u64 map_size = 0, map_key = 0, desc_size = 0;
     u32 desc_version = 0;
     status = st->boot_services->get_memory_map(&map_size, 0, &map_key,

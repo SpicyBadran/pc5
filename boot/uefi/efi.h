@@ -31,6 +31,8 @@ typedef signed short s16;
 
 typedef u64 efi_status;
 typedef void *efi_handle;
+struct efi_system_table;
+struct efi_device_path;
 
 #define EFIAPI __attribute__((ms_abi))
 
@@ -163,17 +165,21 @@ struct efi_memory_descriptor {
  * allocating the kernel buffer and keeping the memory map valid needs
  * AllocatePool, AllocatePages, FreePool, GetMemoryMap and the two timer
  * services used to back off while polling. */
+/* Boot services in specification order.  The loader only calls a handful of
+ * them, but every slot has to be the right width so the offsets stay correct:
+ * `void *` is 8 bytes on x86-64, which is why the unused slots are harmless,
+ * and the used ones carry their real prototype. */
 struct efi_boot_services {
     struct efi_table_header header;
-    void *raise_tpl;
-    void *restore_tpl;
+    void *raise_tpl;                       /* +24  */
+    void *restore_tpl;                     /* +32  */
     efi_status(EFIAPI *allocate_pages)(u32 type, u32 memory_type, u64 pages,
-                                       u64 *memory);
-    efi_status(EFIAPI *free_pages)(u64 memory, u64 pages);
+                                       u64 *memory);                 /* +40  */
+    efi_status(EFIAPI *free_pages)(u64 memory, u64 pages);           /* +48  */
     efi_status(EFIAPI *get_memory_map)(u64 *map_size,
                                        struct efi_memory_descriptor *map,
                                        u64 *map_key, u64 *descriptor_size,
-                                       u32 *descriptor_version);
+                                       u32 *descriptor_version);     /* +56  */
     efi_status(EFIAPI *allocate_pool)(u32 pool_type, u64 size, void **buffer);
     efi_status(EFIAPI *free_pool)(void *buffer);
     void *create_event;
@@ -186,11 +192,17 @@ struct efi_boot_services {
     void *reinstall_protocol_interface;
     void *uninstall_protocol_interface;
     efi_status(EFIAPI *handle_protocol)(efi_handle handle, struct efi_guid *protocol,
-                                        void **interface);
+                                        void **interface);            /* +152 */
     void *reserved;
     void *register_protocol_notify;
-    void *locate_handle;
-    void *locate_device_path;
+    /* LocateHandle: BufferSize, SearchType, SearchKey, *Buffer.
+     * SearchType 2 = ByProtocol + ByRegisterNotify (all handles on the
+     * device path), which is how the ISO9660 volume is found. */
+    efi_status(EFIAPI *locate_handle)(u64 *buffer_size, u32 search_type,
+                                      void *search_key, efi_handle *buffer);
+    efi_status(EFIAPI *locate_device_path)(struct efi_guid *protocol,
+                                           struct efi_device_path **device_path,
+                                           efi_handle *device);       /* +184 */
     void *install_configuration_table;
     void *load_image;
     void *start_image;
@@ -200,6 +212,18 @@ struct efi_boot_services {
     void *get_next_monotonic_count;
     void *stall;
     void *set_watchdog_timer;
+    /* The rest are never called; they are named only to keep the structure
+     * complete, so a future caller cannot silently read the wrong slot. */
+    efi_status(EFIAPI *connect_controller)(efi_handle, void *, void *, u32);
+    efi_status(EFIAPI *disconnect_controller)(efi_handle, efi_handle, efi_handle);
+    efi_status(EFIAPI *open_protocol)(efi_handle handle, struct efi_guid *protocol,
+                                      void **interface, efi_handle agent,
+                                      efi_handle controller, u32 attributes);
+    efi_status(EFIAPI *close_protocol)(efi_handle handle, struct efi_guid *protocol,
+                                       efi_handle agent, efi_handle controller);
+    efi_status(EFIAPI *open_protocol_information)(void);
+    efi_status(EFIAPI *protocols_per_handle)(void);
+    efi_status(EFIAPI *locate_handle_buffer)(void);
 };
 
 struct efi_runtime_services {
@@ -223,6 +247,51 @@ struct efi_system_table {
     void *configuration_table;
 };
 
+/* Device paths: a generic node, and the media-device node that ends the path
+ * of any block device carrying a file system. */
+#define EFI_DEVICE_PATH_TYPE_HARDWARE 1
+#define EFI_DEVICE_PATH_TYPE_ACPI 2
+#define EFI_DEVICE_PATH_TYPE_MESSAGING 3
+#define EFI_DEVICE_PATH_TYPE_MEDIA 4
+#define EFI_DEVICE_PATH_TYPE_END 0x7F
+#define EFI_DEVICE_PATH_SUBTYPE_MEDIA_CDROM 2
+#define EFI_DEVICE_PATH_SUBTYPE_END_ENTIRE 0xFF
+#define EFI_DEVICE_PATH_SUBTYPE_END_INSTANCE 0x01
+
+struct efi_device_path {
+    u8 type;
+    u8 sub_type;
+    u16 length;            /* whole node, header included */
+} __attribute__((packed));
+
+struct efi_device_path_media {
+    struct efi_device_path header;
+    u8 reserved;
+} __attribute__((packed));
+
+struct efi_file_path {
+    void *type;            /* EFI_GUID * */
+    u16 path_name[1];
+};
+
+/* What firmware tells an application about itself: the device it was loaded
+ * from, and (for a boot option) the path of the file it was loaded from. */
+struct efi_loaded_image {
+    u32 revision;
+    efi_handle parent_handle;
+    struct efi_system_table *system_table;
+    efi_handle device_handle;
+    struct efi_file_path *file_path;
+    void *reserved;
+    u32 load_options_size;
+    void *load_options;
+    void *image_base;
+    u64 image_size;
+    u32 image_code_type;
+    u32 image_data_type;
+    efi_status(EFIAPI *unload)(efi_handle image_handle);
+};
+
 /* ------------------------------------------------------- protocol GUIDs */
 #define GUID(a, b, c, d0, d1, d2, d3, d4, d5, d6, d7) \
     { 0x##a, 0x##b, 0x##c, { 0x##d0, 0x##d1, 0x##d2, 0x##d3, 0x##d4, 0x##d5, 0x##d6, 0x##d7 } }
@@ -233,9 +302,17 @@ static const struct efi_guid EFI_GRAPHICS_OUTPUT_PROTOCOL_GUID =
 /* 964e5b22-6459-11d2-8e39-00a0c969723b */
 static const struct efi_guid EFI_SIMPLE_FILE_SYSTEM_PROTOCOL_GUID =
     GUID(964e5b22, 6459, 11d2, 8e, 39, 00, a0, c9, 69, 72, 3b);
-/* c12a7328-f81f-11d2-ba4b-00a0c93ec93b: the ESP partition/system partition
- * the application itself was loaded from. */
+/* 5b1b31a1-9562-11d2-8e3f-00a0c969723b: the image handle's own description,
+ * which names the device the application was loaded from. */
 static const struct efi_guid EFI_LOADED_IMAGE_PROTOCOL_GUID =
-    GUID(c12a7328, f81f, 11d2, ba, 4b, 00, a0, c9, 3e, c9, 3b);
+    GUID(5b1b31a1, 9562, 11d2, 8e, 3f, 00, a0, c9, 69, 72, 3b);
+/* 09576e91-6d3f-11d2-8e39-00a0c969723b */
+static const struct efi_guid EFI_DEVICE_PATH_PROTOCOL_GUID =
+    GUID(09576e91, 6d3f, 11d2, 8e, 39, 00, a0, c9, 69, 72, 3b);
+/* open_protocol attributes used below. */
+#define EFI_OPEN_PROTOCOL_GET_PROTOCOL 0x00000002
+#define EFI_OPEN_PROTOCOL_BY_HANDLE_PROTOCOL 0x00000001
+
+#define EFI_LOCATE_BY_DEVICE_PATH 0x02
 
 #endif /* PC5_EFI_H */
