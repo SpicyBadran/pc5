@@ -1,7 +1,7 @@
 # PS5 compatibility status
 
-Build: PC5 0.1.0 (`9576ad7`). Every line below is what the boot environment
-prints on this build; nothing is aspirational.
+Build: PC5 0.2.0. Every line below is what the boot environment prints on this
+build; nothing is aspirational.
 
 ## 1. The twelve project levels
 
@@ -57,14 +57,16 @@ Why each non-OK stage has that state:
 
 | Feature | Status | Evidence |
 |---|---|---|
-| Bootable ISO (BIOS/El Torito) | COMPLETE AND VERIFIED | `make verify` 32/32, `make boot-test` 21/21 |
+| Bootable ISO (BIOS/El Torito) | COMPLETE AND VERIFIED | `make verify` 32/32, `make boot-test` 25/25 |
 | Loader (A20, E820, VBE, font, ISO probe, kernel load, PM handoff) | COMPLETE AND VERIFIED (emulated) | serial log |
 | Framebuffer console + text fallback + read-back self-test | COMPLETE AND VERIFIED (emulated) | Diagnostics page |
 | CPUID / E820 / PCI / ACPI / SMBIOS inventory | IMPLEMENTED — TESTING REQUIRED | hardware page; needs physical runs |
 | PS/2 keyboard navigation | IMPLEMENTED — TESTING REQUIRED | 8042 driver; emulator input only |
 | Serial console with 11 commands | COMPLETE AND VERIFIED | boot test drives it |
 | Compatibility chain + evidence reporting | COMPLETE AND VERIFIED | unit tests + boot test |
-| ISO writer + independent verifier (reproducible under SOURCE_DATE_EPOCH) | COMPLETE AND VERIFIED | 13 host unit tests |
+| ISO writer + independent verifier (reproducible under SOURCE_DATE_EPOCH) | COMPLETE AND VERIFIED | 32 host tests, `docs/TEST_RESULTS.md` |
+| Release packaging (`make release-assets`) + provenance in `build-info.json` | COMPLETE AND VERIFIED (local) | `docs/TEST_RESULTS.md` §6 |
+| CI pipeline that publishes releases | WRITTEN, ACTIVATION BLOCKED (token lacks the workflows permission) | `ci/README.md` |
 | Firmware analysis tool (no decryption) | COMPLETE AND VERIFIED | unit tests on synthetic containers |
 | Kernel ATAPI PIO driver + ISO9660 reader | COMPLETE AND VERIFIED (emulated) | `storage_mounted volume=PC5 … signature=ok` |
 | UEFI boot path | NOT STARTED | — |

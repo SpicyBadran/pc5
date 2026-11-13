@@ -276,11 +276,13 @@ class WorkflowTests(unittest.TestCase):
     """Static checks on the CI pipeline; no network, no PyYAML."""
 
     PATH = os.path.join(ROOT, ".github", "workflows", "build.yml")
+    FALLBACK = os.path.join(ROOT, "ci", "build.yml")
 
     def setUp(self):
-        if not os.path.exists(self.PATH):
+        path = self.PATH if os.path.exists(self.PATH) else self.FALLBACK
+        if not os.path.exists(path):
             self.skipTest("no workflow")
-        with open(self.PATH, encoding="utf-8") as fh:
+        with open(path, encoding="utf-8") as fh:
             self.text = fh.read()
 
     def test_actions_are_pinned_to_commit_shas(self):
@@ -312,8 +314,12 @@ class WorkflowTests(unittest.TestCase):
     def test_publishes_the_three_assets_idempotently(self):
         for asset in ("pc5.iso", "pc5.iso.sha256", "build-info.json"):
             self.assertIn(asset, self.text)
-        self.assertIn("--clobber", self.text)
-        self.assertIn("gh release view", self.text)  # update instead of duplicate
+        # the publishing logic lives in tools/publish_release.sh so it can be
+        # tested without network access
+        self.assertIn("tools/publish_release.sh", self.text)
+        script = open(os.path.join(ROOT, "tools", "publish_release.sh"), encoding="utf-8").read()
+        self.assertIn("--clobber", script)
+        self.assertIn("gh release view", script)  # update instead of duplicate
 
     def test_checksums_are_verified_before_publishing(self):
         self.assertIn("sha256sum -c pc5.iso.sha256", self.text)

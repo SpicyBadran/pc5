@@ -49,13 +49,13 @@ start yet; see `docs/KNOWN_LIMITATIONS.md`. Writing the ISO to a stick is safe
 Expected boot log on COM1 (115200 8N1):
 
 ```
-PC5 loader 0.1.0
+PC5 loader 0.2.0
 pc5: framebuffer 1024x0768
 pc5: medium is ISO9660, disk unit bytes 0800
 pc5: kernel image verified
 pc5: medium volume PC5
 pc5: entering 32-bit kernel
-PC5 KERNEL 0.1.0 …
+PC5 KERNEL 0.2.0 …
 PC5-LOG …
 PC5-BOOT-OK
 ```

@@ -58,8 +58,18 @@ different commit is a different, equally valid image.
 
 ## Continuous integration and releases
 
-`.github/workflows/build.yml` builds, verifies and tests every push and pull
-request, and publishes a GitHub release when a tag is pushed.
+The pipeline is written and validated, but **not yet active on GitHub**: it lives
+in `ci/build.yml` because the GitHub App that authored it has repository admin
+rights but not the *workflows* permission, so GitHub refuses any push that
+creates `.github/workflows/build.yml`. Activating it is one command:
+
+```sh
+git mv ci/build.yml .github/workflows/build.yml
+git commit -m "ci: activate the build and release pipeline" && git push
+```
+
+`ci/README.md` records why, and what has been proven without it. The description
+below is what the pipeline does once it is in `.github/workflows/`.
 
 | Trigger | What runs | What is published |
 |---|---|---|
@@ -95,6 +105,13 @@ Third-party actions are pinned to commit SHAs (enforced by
 `tests/test_tools.py::WorkflowTests`), no secrets are used, and the pipeline
 fails closed: nothing is published if any build, verification or test step
 fails.
+
+Publishing itself is `tools/publish_release.sh`, not inline YAML, so it can be
+exercised without GitHub: `tests/test_release.py` runs it against a stub `gh`
+and asserts the checksum gate, the verdict gate, create-then-update (no
+duplicate assets), `--clobber`, and the final "all three assets attached" check.
+That is a test of the logic, not proof that GitHub accepted an upload — only a
+real run can show that.
 
 ### What the metadata records
 
