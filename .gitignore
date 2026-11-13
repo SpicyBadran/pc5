@@ -6,6 +6,9 @@ node_modules/
 package-lock.json
 package.json
 
+# python tooling used only to run the stub-firmware harness (and by CI)
+.venv/
+
 # a user's own firmware image and the manifest derived from it: the image is
 # never redistributable and the manifest is machine-specific
 firmware/

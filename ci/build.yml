@@ -87,7 +87,16 @@ jobs:
       - name: Execute the UEFI loader against the stub firmware
         run: |
           set -eu
-          python3 -m pip install --disable-pip-version-check "unicorn==2.1.4"
+          # Install into a virtual environment instead of system Python.
+          # The runner image marks its Python as externally managed (PEP 668),
+          # so a bare `pip install` aborts the job with
+          # "error: externally-managed-environment" before any test runs.
+          # Putting the venv first on PATH is what makes the Makefile's
+          # `python3` resolve to it, so `make stubtest` actually finds unicorn.
+          python3 -m venv .venv
+          .venv/bin/pip install --disable-pip-version-check "unicorn==2.1.4"
+          export PATH="$PWD/.venv/bin:$PATH"
+          python3 -c "import unicorn; print('unicorn', unicorn.__version__)"
           make stubtest | tee build/logs/stubtest.log
 
       - name: Boot the image in the emulator

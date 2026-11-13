@@ -189,6 +189,48 @@ integration`.
 **Nothing in this section may be upgraded until a real run exists.** See
 `ci/README.md` for the owner action that unblocks it.
 
+### 6.1 Workflow rehearsal, 2026-11-13 — a defect the pipeline would have hit
+
+The workflow has never run on GitHub, so its steps were rehearsed locally in the
+order the `build` job runs them, from a clean clone of `b97e302`. One step was
+broken:
+
+```
+$ python3 -m pip install --disable-pip-version-check "unicorn==2.1.4"
+error: externally-managed-environment
+× This environment is externally managed
+rc=1
+```
+
+The runner image marks its Python as externally managed (PEP 668), and the step
+runs under `set -eu`, so this aborted the **whole build job** before a single
+test ran — `make stubtest` was never reached. The workflow also uses no
+`setup-python` action, so it inherits exactly that interpreter.
+
+Fixed by installing into a virtual environment and putting it first on `PATH`,
+which is what makes the Makefile's hard-coded `python3` resolve to it:
+
+```
+$ python3 -m venv .venv
+$ .venv/bin/pip install --disable-pip-version-check "unicorn==2.1.4"
+$ export PATH="$PWD/.venv/bin:$PATH"
+$ python3 -c "import unicorn; print('unicorn', unicorn.__version__)"
+unicorn 2.1.4
+$ make stubtest
+PASSED: 42/42 checks against the stub firmware
+```
+
+`.venv/` is now in `.gitignore`, next to the existing `node_modules/` entry, so
+the rehearsal does not leave untracked files. The rest of the job was rehearsed
+unchanged and behaves correctly: ISO build, `make verify` **VALID**,
+`make unit` **35/0**, host suite **OK**, `make boot-test` **25/25**, two clean
+builds byte-identical (`97c56ec5…016775`), and `release-assets` producing a
+`build-info.json` whose verdict is `PASS` with artifact and record hashes equal.
+
+This is a **local rehearsal, not a CI run**. It does not change the verdicts in
+the table above: the workflow has still never been registered or executed by
+GitHub, and no release asset exists.
+
 Stage assets locally with:
 
 ```

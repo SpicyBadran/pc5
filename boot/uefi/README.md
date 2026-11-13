@@ -122,9 +122,16 @@ python3 tools/mkefiimg.py --list build/efi.img
 Execution of the loader itself, against the stub firmware:
 
 ```
-pip install "unicorn==2.1.4"   # the harness dependency
-make stubtest              # exits 2 with an explanation if unicorn is absent
+python3 -m venv .venv                      # PEP 668: do not install into system Python
+.venv/bin/pip install "unicorn==2.1.4"     # the harness dependency
+export PATH="$PWD/.venv/bin:$PATH"         # so the Makefile's python3 finds it
+make stubtest                              # exits 2 if unicorn is absent
 ```
+
+A bare `pip install` fails with `error: externally-managed-environment` on any
+distribution that marks its Python as externally managed (Debian 12, Ubuntu
+23.04+), and in CI that aborts the whole job. The virtual environment is
+gitignored.
 
 `make stubtest` prints one line per check and writes
 `build/stubtest-report.json`. It is wired into `make test`, and a missing
