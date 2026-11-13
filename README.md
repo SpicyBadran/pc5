@@ -29,7 +29,7 @@ What *does* work today, verified in this repository:
 | Framebuffer console with VGA text fallback | COMPLETE AND VERIFIED (emulated) | boot log, framebuffer self-test |
 | PS/2 keyboard navigation | IMPLEMENTED — TESTING REQUIRED | 8042 driver, emulator input |
 | Serial recovery console | COMPLETE AND VERIFIED | `pc5>` commands |
-| UEFI boot path (PE32+ `\EFI\BOOT\BOOTX64.EFI`, GOP, FAT ESP) | IMPLEMENTED — UNTESTED (no UEFI firmware in the build environment) | `make iso` builds and verifies it; see [`docs/TEST_RESULTS.md`](docs/TEST_RESULTS.md) §7 |
+| UEFI boot path (PE32+ `\EFI\BOOT\BOOTX64.EFI`, GOP, FAT ESP) | IMPLEMENTED — EXECUTED AGAINST STUB FIRMWARE (not OVMF) | `make stubtest` → 42/42 checks running the real image; no UEFI firmware exists in the build environment, so this is not a compatibility result — see [`docs/TEST_RESULTS.md`](docs/TEST_RESULTS.md) §7 |
 | DualSense controller support | NOT STARTED (needs a USB stack) | chain stage 3 |
 | Genuine PS5 firmware execution | BLOCKED — no verified path exists | [`docs/FIRMWARE_ANALYSIS.md`](docs/FIRMWARE_ANALYSIS.md) |
 | Actual PS5 game execution | NOT STARTED | [`docs/GAME_TEST_RESULTS.md`](docs/PS5_GAME_TEST_RESULTS.md) |
@@ -44,6 +44,14 @@ make verify     # independent structural verification of the image
 make check      # host unit tests + kernel unit tests
 make boot-test  # boots the ISO in the emulator and asserts the interface
 make release-assets TAG=v0.2.0   # verify + metadata + the three release files
+```
+
+To execute the UEFI loader as well — it runs the real `BOOTX64.EFI` against a
+stub firmware, not OVMF — install the one optional dependency:
+
+```sh
+pip install "unicorn==2.1.4"
+make stubtest   # 42 checks; exits 2 and says so if unicorn is absent
 ```
 
 A release pipeline (`.github/workflows`-ready, stored in `ci/build.yml` while the
