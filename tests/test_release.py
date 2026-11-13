@@ -207,6 +207,39 @@ class CiLayoutTests(unittest.TestCase):
         self.assertIn("tools/publish_release.sh", text)
         self.assertIn("startsWith(github.ref, 'refs/tags/')", text)
 
+    def test_harness_dependency_is_installed_into_a_venv(self):
+        """A bare `pip install` aborts the job on PEP 668 runners.
+
+        Debian 12 and Ubuntu 23.04+ mark their Python as externally managed, so
+        `python3 -m pip install ...` exits non-zero.  Under `set -eu` that kills
+        the whole build job before any test runs.  The step must create a venv
+        and put it on PATH, because the Makefile invokes a bare `python3`.
+        """
+        candidates = [
+            os.path.join(ROOT, ".github", "workflows", "build.yml"),
+            os.path.join(ROOT, "ci", "build.yml"),
+        ]
+        found = [p for p in candidates if os.path.exists(p)]
+        self.assertTrue(found)
+        text = open(found[0], encoding="utf-8").read()
+        self.assertIn("python3 -m venv .venv", text)
+        self.assertIn("unicorn==2.1.4", text)
+        # the venv has to be on PATH for `make stubtest` to find the module
+        self.assertIn('export PATH="$PWD/.venv/bin:$PATH"', text)
+        for line in text.splitlines():
+            stripped = line.strip()
+            # only shell commands count; the surrounding prose mentions pip too
+            if stripped.startswith("#") or "pip install" not in stripped:
+                continue
+            self.assertTrue(
+                stripped.startswith(".venv/bin/pip"),
+                f"pip install not isolated in a venv: {stripped!r}",
+            )
+
+    def test_venv_is_gitignored(self):
+        with open(os.path.join(ROOT, ".gitignore"), encoding="utf-8") as fh:
+            self.assertIn(".venv/", fh.read())
+
     def test_readme_explains_activation_when_not_installed(self):
         active = os.path.join(ROOT, ".github", "workflows", "build.yml")
         if os.path.exists(active):
